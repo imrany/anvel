@@ -50,39 +50,44 @@ async fn serve_anvel() -> Result<(), String> {
     let port: u16 = 8082;
     let ipv4: (Ipv4Addr, u16) = (Ipv4Addr::new(0, 0, 0, 0), port);
 
-    // Spawn the server in a separate task instead of awaiting it directly
-    tokio::task::spawn_local(async move {
-        let server = HttpServer::new(move || {
-            let cors = Cors::default()
-                .allow_any_origin()
-                .allowed_methods(vec!["GET", "POST", "PATCH", "PUT", "DELETE"])
-                .allowed_headers(vec![
-                    http::header::AUTHORIZATION,
-                    http::header::ACCEPT,
-                    http::header::CONTENT_TYPE,
-                ])
-                .max_age(3600);
+    // Spawn the server in a separate thread with its own LocalSet
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+        let local = tokio::task::LocalSet::new();
 
-            App::new().wrap(cors).app_data(app_state.clone()).service(
-                web::scope("/api")
-                    .service(directory_content)
-                    .service(get_ip_address)
-                    .service(open_file)
-                    .service(send)
-                    .service(receive)
-                    .service(download)
-                    .service(ping)
-                    .service(pong)
-                    .service(websocket),
-            )
-        })
-        .bind(ipv4)
-        .expect(&format!("Failed to bind server to {}:{}", ipv4.0, ipv4.1))
-        .run();
+        local.block_on(&rt, async move {
+            let server = HttpServer::new(move || {
+                let cors = Cors::default()
+                    .allow_any_origin()
+                    .allowed_methods(vec!["GET", "POST", "PATCH", "PUT", "DELETE"])
+                    .allowed_headers(vec![
+                        http::header::AUTHORIZATION,
+                        http::header::ACCEPT,
+                        http::header::CONTENT_TYPE,
+                    ])
+                    .max_age(3600);
 
-        if let Err(e) = server.await {
-            eprintln!("Server error: {}", e);
-        }
+                App::new().wrap(cors).app_data(app_state.clone()).service(
+                    web::scope("/api")
+                        .service(directory_content)
+                        .service(get_ip_address)
+                        .service(open_file)
+                        .service(send)
+                        .service(receive)
+                        .service(download)
+                        .service(ping)
+                        .service(pong)
+                        .service(websocket),
+                )
+            })
+            .bind(ipv4)
+            .expect(&format!("Failed to bind server to {}:{}", ipv4.0, ipv4.1))
+            .run();
+
+            if let Err(e) = server.await {
+                eprintln!("Server error: {}", e);
+            }
+        });
     });
 
     Ok(())
