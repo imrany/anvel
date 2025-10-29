@@ -3,54 +3,69 @@ name = "anvel"
 version = "0.4.3"
 edition = "2021"
 description = "Anvel is a file sharing program."
-license = "MIT License"
-authors = [
-    "imrany <imranmat254@gmail.com>",
-]
-publish=false
+license = "MIT"
+authors = ["imrany <imranmat254@gmail.com>"]
+publish = false
 repository = "https://github.com/imrany/anvel"
 readme = "README.md"
 categories = ["command-line-utilities", "wasm", "web-programming"]
 keywords = ["Anvel", "Productivity", "Network", "connect"]
 rust-version = "1.76.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# Library configuration
+[lib]
+name = "anvel_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
 
+# Build dependencies
 [build-dependencies]
-tauri-build = { version = "1", features = [] }
+tauri-build = { version = "2", features = [] }
 
-[package.metadata]
-authors = ["imrany <imranmat254@gmail.com>"]
-license = "MIT License"
-repository = "https://github.com/imrany/anvel"
-homepage = "https://yourwebsite.com"
-description = "Anvel is a networking program for file sharing.."
-ProductName = "Anvel"
-LegalCopyright = "Copyright © 2024"
-
+# Main dependencies
 [dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-http = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-os = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-process = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Actix web server dependencies
 actix-cors = "0.7.0"
 actix-files = "0.6.2"
 actix-multipart = "0.6.1"
 actix-web = "4.4.0"
-anyhow = "1.0.75"
-async-std = "1.12.0"
-current_platform = "0.2.0"
-dirs = "5.0.1"
+actix-web-actors = "4.3.0"
+actix = "0.13.3"
+
+# Async runtime
+tokio = { version = "1.35.1", features = ["full"] }
 futures = "0.3.29"
 futures-util = "0.3.30"
+async-std = "1.12.0"
+
+# Utilities
+dirs = "5.0.1"
 local-ip-address = "0.5.6"
 open = "5.0.1"
 rand = "0.8.5"
 reqwest = { version = "0.11.23", features = ["json", "multipart"] }
-serde = { version = "1", features = ["derive"] }
-tokio = { version = "1.35.1", features = ["full"] }
-tauri = { version = "1", features = [ "updater", "api-all"] }
-serde_json = "1"
+anyhow = "1.0.75"
+current_platform = "0.2.0"
 notify-rust = "4.11.0"
-actix-web-actors = "4.3.0"
-actix = "0.13.3"
 
+# Platform-specific dependencies
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+
+# Features
 [features]
-# This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
+default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

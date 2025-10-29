@@ -1,112 +1,19 @@
 {
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Anvel",
+  "version": "0.4.3",
+  "identifier": "com.anvel.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
-    "devPath": "http://localhost:1420",
-    "distDir": "../dist"
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
   },
-  "package": {
-    "productName": "Anvel",
-    "version": "0.4.3"
-  },
-  "tauri": {
-    "updater": {
-        "windows": {
-            "installMode": "passive"
-        },
-        "active": true,
-        "endpoints": [
-            "https://raw.githubusercontent.com/imrany/anvel/main/updater.json"
-        ],
-        "dialog": true,
-        "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM5N0Q5QTU4OENGM0MzMkYKUldRdncvT01XSnA5T2FhZjlCbVg5b0toMXNqNHRBOFF6dmRqT3A2UU8xeWpxQ3cxTkVxR0ROSG8K"
-    },  
-    "allowlist": {
-        "all": true,
-        "globalShortcut": {
-            "all": true
-        },
-        "http": {
-            "all": true,
-            "request": true
-        },
-        "notification": {
-            "all": true
-        },
-        "os": {
-            "all": true
-        },
-        "path": {
-            "all": true
-        },
-        "fs": {
-            "all": true, 
-            "readFile": true,
-            "writeFile": true,
-            "readDir": true,
-            "copyFile": true,
-            "createDir": true,
-            "removeDir": true,
-            "removeFile": true,
-            "renameFile": true,
-            "exists": true
-        },
-        "dialog": {
-            "all": true,
-            "ask": true,
-            "confirm": true, 
-            "message": true,
-            "open": true,
-            "save": true 
-        },
-        "clipboard":{
-            "all": true,
-            "writeText": true,
-            "readText": true
-        },
-        "shell": {
-            "all": true,
-            "open": true
-        },
-        "window":{
-            "all": true,
-            "create": true,
-            "center": true,
-            "requestUserAttention": true,
-            "setResizable": true,
-            "setMaximizable": true,
-            "setMinimizable": true,
-            "setClosable": true,
-            "setTitle": true,
-            "maximize": true,
-            "unmaximize": true,
-            "minimize": true,
-            "unminimize": true,
-            "show": true,
-            "hide": true,
-            "close": true,
-            "setDecorations": true,
-            "setAlwaysOnTop": true,
-            "setContentProtected": true,
-            "setSize": true,
-            "setMinSize": true,
-            "setMaxSize": true,
-            "setPosition": true,
-            "setFullscreen": true,
-            "setFocus": true,
-            "setIcon": true,
-            "setSkipTaskbar": true,
-            "setCursorGrab": true,
-            "setCursorVisible": true,
-            "setCursorIcon": true,
-            "setCursorPosition": true,
-            "setIgnoreCursorEvents": true,
-            "startDragging": true,
-            "print": true
-        }
-    },
+  "app": {
+    "withGlobalTauri": false,
     "windows": [
       {
+        "label": "main",
         "title": "Anvel",
         "width": 1000,
         "height": 600
@@ -114,18 +21,37 @@
     ],
     "security": {
       "csp": null
-    },
-    "bundle": {
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "createUpdaterArtifacts": "v1Compatible"
+  },
+  "plugins": {
+    "updater": {
+      "windows": {
+        "installMode": "passive"
+      },
       "active": true,
-      "targets": "all",
-      "identifier": "com.imrany",
-      "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icons/icon.icns",
-        "icons/icon.ico"
-      ]
+      "endpoints": [
+        "https://raw.githubusercontent.com/imrany/anvel/main/updater.json"
+      ],
+      "dialog": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM5N0Q5QTU4OENGM0MzMkYKUldRdncvT01XSnA5T2FhZjlCbVg5b0toMXNqNHRBOFF6dmRqT3A2UU8xeWpxQ3cxTkVxR0ROSG8K"
+    },
+    "fs": {
+      "requireLiteralLeadingDot": false
+    },
+    "opener": {
+      "requireLiteralLeadingDot": false
     }
   }
 }
