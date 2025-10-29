@@ -47,7 +47,7 @@ async fn serve_anvel() -> Result<(), String> {
         shared_dir,
     });
 
-    let port: u16 = 8080;
+    let port: u16 = 8082;
     let ipv4: (Ipv4Addr, u16) = (Ipv4Addr::new(0, 0, 0, 0), port);
 
     // Spawn the server in a separate task instead of awaiting it directly

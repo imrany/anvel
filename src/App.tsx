@@ -14,7 +14,7 @@ import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
 function App() {
-  const API_URL = `http://localhost:80`;
+  const API_URL = `http://localhost:8082`;
   const [ws, setWs] = useState<WebSocket | null>(null);
   const userPreference: UserPreference = {
     backgroundImage: "default",
