@@ -40,6 +40,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Add macOS target
+        run: rustup target add x86_64-apple-darwin
+
       - name: Install Linux deps
         if: matrix.platform.os == 'ubuntu-latest'
         run: |
