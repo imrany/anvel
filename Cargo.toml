@@ -1,0 +1,9 @@
+[package]
+name = "file_x"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dirs = "6.0.0"
+eframe = "0.33.2"
+egui = "0.33.2"
