@@ -3,174 +3,83 @@ name: Release
 on:
   push:
     tags:
-      - "v*.*.*" # Triggers on tags like v0.1.0, v1.2.3, etc.
+      - "v*.*.*"
 
 permissions:
   contents: write
 
 jobs:
-  create-release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.get_version.outputs.version }}
-    steps:
-      - name: Get version from tag
-        id: get_version
-        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ steps.get_version.outputs.version }}
-          draft: false
-          prerelease: false
-
-  build:
-    name: Build - ${{ matrix.platform.name }}
-    needs: create-release
+  release:
+    name: Release - ${{ matrix.platform.name }}
     strategy:
-      fail-fast: false
       matrix:
         platform:
-          - name: Linux-x86_64
+          - name: Linux
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             bin: anvel
-            archive: tar.gz
+            ext: tar.gz
 
-          - name: Linux-aarch64
-            os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            bin: anvel
-            archive: tar.gz
-
-          - name: Windows-x86_64
+          - name: Windows
             os: windows-latest
             target: x86_64-pc-windows-msvc
             bin: anvel.exe
-            archive: zip
+            ext: zip
 
-          - name: macOS-x86_64
+          - name: macOS
             os: macos-latest
             target: x86_64-apple-darwin
             bin: anvel
-            archive: tar.gz
-
-          - name: macOS-aarch64
-            os: macos-latest
-            target: aarch64-apple-darwin
-            bin: anvel
-            archive: tar.gz
+            ext: tar.gz
 
     runs-on: ${{ matrix.platform.os }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform.target }}
 
-      - name: Install Linux dependencies
+      - name: Install Linux deps
         if: matrix.platform.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libgtk-3-dev
 
-      - name: Install cross-compilation tools (Linux aarch64)
-        if: matrix.platform.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Build binary
+      - name: Build
         run: cargo build --release --target ${{ matrix.platform.target }}
 
-      - name: Strip binary (Linux and macOS)
-        if: matrix.platform.os != 'windows-latest'
-        run: strip target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}
-
-      - name: Create archive (Unix)
-        if: matrix.platform.archive == 'tar.gz'
+      - name: Package (Unix)
+        if: matrix.platform.ext == 'tar.gz'
         run: |
           cd target/${{ matrix.platform.target }}/release
-          tar czf ../../../anvel-${{ needs.create-release.outputs.version }}-${{ matrix.platform.target }}.${{ matrix.platform.archive }} ${{ matrix.platform.bin }}
-          cd -
+          tar czf ../../../${{ matrix.platform.name }}-${{ github.ref_name }}.${{ matrix.platform.ext }} ${{ matrix.platform.bin }}
 
-      - name: Create archive (Windows)
-        if: matrix.platform.archive == 'zip'
+      - name: Package (Windows)
+        if: matrix.platform.ext == 'zip'
         shell: pwsh
         run: |
-          Compress-Archive -Path target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }} -DestinationPath anvel-${{ needs.create-release.outputs.version }}-${{ matrix.platform.target }}.zip
+          Compress-Archive -Path target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }} -DestinationPath ${{ matrix.platform.name }}-${{ github.ref_name }}.${{ matrix.platform.ext }}
 
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./anvel-${{ needs.create-release.outputs.version }}-${{ matrix.platform.target }}.${{ matrix.platform.archive }}
-          asset_name: anvel-${{ needs.create-release.outputs.version }}-${{ matrix.platform.target }}.${{ matrix.platform.archive }}
-          asset_content_type: ${{ matrix.platform.archive == 'zip' && 'application/zip' || 'application/gzip' }}
-
-  # Optional: Build AppImage for Linux
-  build-appimage:
-    name: Build AppImage
-    needs: create-release
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install dependencies
+      # GENERATE CHECKSUM FOR THIS PLATFORM
+      - name: Generate checksum (Unix)
+        if: matrix.platform.os != 'windows-latest'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
+          shasum -a 256 ${{ matrix.platform.name }}-${{ github.ref_name }}.${{ matrix.platform.ext }} > ${{ matrix.platform.name }}-${{ github.ref_name }}.${{ matrix.platform.ext }}.sha256
 
-      - name: Build binary
-        run: cargo build --release
+      - name: Generate checksum (Windows)
+        if: matrix.platform.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 ${{ matrix.platform.name }}-${{ github.ref_name }}.${{ matrix.platform.ext }}).Hash.ToLower()
+          "$hash  ${{ matrix.platform.name }}-${{ github.ref_name }}.${{ matrix.platform.ext }}" | Out-File -Encoding ASCII ${{ matrix.platform.name }}-${{ github.ref_name }}.${{ matrix.platform.ext }}.sha256
 
-      - name: Install cargo-appimage
-        run: cargo install cargo-appimage
-
-      - name: Create AppImage
-        run: cargo appimage
-
-      - name: Upload AppImage
-        uses: actions/upload-release-asset@v1
+      # UPLOAD BOTH BINARY AND CHECKSUM
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ matrix.platform.name }}-${{ github.ref_name }}.${{ matrix.platform.ext }}
+            ${{ matrix.platform.name }}-${{ github.ref_name }}.${{ matrix.platform.ext }}.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./anvel-${{ needs.create-release.outputs.version }}-x86_64.AppImage
-          asset_name: anvel-${{ needs.create-release.outputs.version }}-x86_64.AppImage
-          asset_content_type: application/octet-stream
