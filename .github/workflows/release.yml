@@ -14,19 +14,19 @@ jobs:
     strategy:
       matrix:
         platform:
-          - name: Linux
+          - name: anvel-linux
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             bin: anvel
             ext: tar.gz
 
-          - name: Windows
+          - name: anvel-windows
             os: windows-latest
             target: x86_64-pc-windows-msvc
             bin: anvel.exe
             ext: zip
 
-          - name: macOS
+          - name: anvel-macos
             os: macos-latest
             target: x86_64-apple-darwin
             bin: anvel
