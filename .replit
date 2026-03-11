@@ -4,6 +4,7 @@ expertMode = true
 
 [nix]
 channel = "stable-25_05"
+packages = ["xorg.libX11", "xorg.libXcursor", "xorg.libXrandr", "xorg.libXi", "xorg.libxcb", "libGL", "libGLU", "mesa", "libxkbcommon", "xorg.libXext", "xorg.libXfixes", "wayland"]
 
 [workflows]
 runButton = "Project"
