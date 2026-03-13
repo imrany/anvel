@@ -6,6 +6,44 @@ use std::thread;
 use std::net::{TcpListener, TcpStream, UdpSocket};
 use egui::{Color32, RichText, Vec2};
 
+// ─── Theme helpers ─────────────────────────────────────────────────────────────
+
+fn is_dark(ctx: &egui::Context) -> bool {
+    ctx.style().visuals.dark_mode
+}
+
+fn col_surface(ctx: &egui::Context) -> Color32 {
+    if is_dark(ctx) { Color32::from_rgb(18, 18, 18) } else { Color32::WHITE }
+}
+
+fn col_surface2(ctx: &egui::Context) -> Color32 {
+    if is_dark(ctx) { Color32::from_rgb(26, 26, 26) } else { Color32::from_rgb(245, 245, 245) }
+}
+
+fn col_surface3(ctx: &egui::Context) -> Color32 {
+    if is_dark(ctx) { Color32::from_rgb(32, 32, 32) } else { Color32::from_rgb(235, 235, 235) }
+}
+
+fn col_text(ctx: &egui::Context) -> Color32 {
+    if is_dark(ctx) { Color32::from_rgb(220, 220, 220) } else { Color32::from_rgb(20, 20, 20) }
+}
+
+fn col_text2(ctx: &egui::Context) -> Color32 {
+    if is_dark(ctx) { Color32::from_rgb(140, 140, 140) } else { Color32::from_rgb(100, 100, 100) }
+}
+
+fn col_border(ctx: &egui::Context) -> Color32 {
+    if is_dark(ctx) { Color32::from_rgb(50, 50, 50) } else { Color32::from_rgb(200, 200, 200) }
+}
+
+fn col_accent(ctx: &egui::Context) -> Color32 {
+    if is_dark(ctx) { Color32::from_rgb(130, 160, 220) } else { Color32::from_rgb(40, 90, 180) }
+}
+
+fn col_success(_ctx: &egui::Context) -> Color32 { Color32::from_rgb(80, 180, 120) }
+fn col_warn(_ctx: &egui::Context) -> Color32    { Color32::from_rgb(210, 160, 50) }
+fn col_danger(_ctx: &egui::Context) -> Color32  { Color32::from_rgb(210, 70, 70) }
+
 // ─── AI Config ────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -13,18 +51,14 @@ enum AiProvider { Claude, Gemini }
 
 #[derive(Clone)]
 struct AiConfig {
-    provider:  AiProvider,
-    api_key:   String,
-    model:     String,
+    provider: AiProvider,
+    api_key:  String,
+    model:    String,
 }
 
 impl Default for AiConfig {
     fn default() -> Self {
-        Self {
-            provider: AiProvider::Claude,
-            api_key:  String::new(),
-            model:    "claude-haiku-4-5-20251001".into(),
-        }
+        Self { provider: AiProvider::Claude, api_key: String::new(), model: "claude-haiku-4-5-20251001".into() }
     }
 }
 
@@ -56,8 +90,7 @@ impl AiConfig {
         let text = format!(
             "provider={}\napi_key={}\nmodel={}\n",
             if self.provider == AiProvider::Gemini { "gemini" } else { "claude" },
-            self.api_key,
-            self.model,
+            self.api_key, self.model,
         );
         let _ = fs::write(&path, text);
     }
@@ -74,43 +107,28 @@ impl AiConfig {
     }
 
     fn default_model(&self) -> &'static str {
-        match self.provider {
-            AiProvider::Claude => "claude-haiku-4-5-20251001",
-            AiProvider::Gemini => "gemini-2.0-flash",
-        }
+        match self.provider { AiProvider::Claude => "claude-haiku-4-5-20251001", AiProvider::Gemini => "gemini-2.0-flash" }
     }
 }
 
 // ─── Chat ─────────────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
-struct ChatMessage {
-    role:    ChatRole,
-    content: String,
-}
+struct ChatMessage { role: ChatRole, content: String }
 
 #[derive(Clone, PartialEq)]
 enum ChatRole { User, Assistant }
 
 #[derive(Clone)]
-struct MentionedFile {
-    name:   String,
-    path:   PathBuf,
-    is_dir: bool,
-    size:   u64,
-    ext:    String,
-}
+struct MentionedFile { name: String, path: PathBuf, is_dir: bool, size: u64, ext: String }
 
-// ─── LAN transfer ─────────────────────────────────────────────────────────────
+// ─── LAN ──────────────────────────────────────────────────────────────────────
 
 const LAN_DISCOVER_PORT: u16 = 44444;
 const LAN_TRANSFER_PORT: u16 = 44445;
 
 #[derive(Clone)]
-struct LanPeer {
-    display: String,
-    addr:    std::net::IpAddr,
-}
+struct LanPeer { display: String, addr: std::net::IpAddr }
 
 #[derive(Clone)]
 enum LanTransferState {
@@ -127,19 +145,17 @@ enum LanServerMsg {
     Error(String),
 }
 
-// ─── Other UI types ───────────────────────────────────────────────────────────
+// ─── UI types ─────────────────────────────────────────────────────────────────
 
 struct ContextMenuState {
-    pos:       egui::Pos2,
-    entry_idx: usize,
+    pos:          egui::Pos2,
+    entry_idx:    usize,
+    /// Pass counter on which this menu was opened — guards against same-frame close.
+    opened_frame: u64,
 }
 
 #[derive(Clone)]
-struct Notification {
-    message: String,
-    color:   Color32,
-    created: std::time::Instant,
-}
+struct Notification { message: String, color: Color32, created: std::time::Instant }
 
 #[derive(Clone, Copy, PartialEq)]
 enum SortBy { Name, Size, Modified, Type }
@@ -162,52 +178,54 @@ struct DirEntry {
 // ─── Main struct ──────────────────────────────────────────────────────────────
 
 pub struct FileExplorer {
-    // ── file browser ─────────────────────────────────────────────────────────
-    current_path:     PathBuf,
-    entries:          Vec<DirEntry>,
-    filtered_entries: Vec<usize>,
-    selected_file:    Option<usize>,
-    error_message:    Option<String>,
-    search_query:     String,
-    clipboard:        Option<(PathBuf, FileOperation)>,
-    show_hidden:      bool,
-    sort_by:          SortBy,
-    view_mode:        ViewMode,
-    path_history:     Vec<PathBuf>,
-    history_index:    usize,
-    renaming:         Option<(usize, String)>,
+    // file browser
+    current_path:      PathBuf,
+    entries:           Vec<DirEntry>,
+    filtered_entries:  Vec<usize>,
+    selected_file:     Option<usize>,
+    error_message:     Option<String>,
+    search_query:      String,
+    clipboard:         Option<(PathBuf, FileOperation)>,
+    show_hidden:       bool,
+    sort_by:           SortBy,
+    view_mode:         ViewMode,
+    path_history:      Vec<PathBuf>,
+    history_index:     usize,
+    renaming:          Option<(usize, String)>,
     properties_dialog: Option<PathBuf>,
-    notifications:    Vec<Notification>,
-    context_menu:     Option<ContextMenuState>,
+    notifications:     Vec<Notification>,
+    context_menu:      Option<ContextMenuState>,
 
-    // ── AI chat ───────────────────────────────────────────────────────────────
-    chat_messages:       Vec<ChatMessage>,
-    chat_input:          String,
-    ai_loading:          bool,
+    // AI chat
+    chat_messages:        Vec<ChatMessage>,
+    chat_input:           String,
+    ai_loading:           bool,
     ai_response_receiver: Option<std::sync::mpsc::Receiver<String>>,
-    at_mode:             bool,
-    at_query:            String,
-    mentioned_files:     Vec<MentionedFile>,
-    ai_config:           AiConfig,
-    show_ai_settings:    bool,
-    ai_settings_draft:   AiConfig,
+    at_mode:              bool,
+    at_query:             String,
+    mentioned_files:      Vec<MentionedFile>,
+    ai_config:            AiConfig,
+    show_ai_settings:     bool,
+    ai_settings_draft:    AiConfig,
+    show_ai_panel:        bool,
 
-    // ── LAN transfer ─────────────────────────────────────────────────────────
-    lan_state:          LanTransferState,
-    lan_file_path:      Option<PathBuf>,
-    lan_discover_rx:    Option<std::sync::mpsc::Receiver<Vec<LanPeer>>>,
-    lan_transfer_rx:    Option<std::sync::mpsc::Receiver<Result<(), String>>>,
-    lan_server_rx:      Option<std::sync::mpsc::Receiver<LanServerMsg>>,
-    lan_receive_dir:    PathBuf,
+    // theme
+    dark_mode: bool,
+
+    // LAN
+    lan_state:       LanTransferState,
+    lan_file_path:   Option<PathBuf>,
+    lan_discover_rx: Option<std::sync::mpsc::Receiver<Vec<LanPeer>>>,
+    lan_transfer_rx: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
+    lan_server_rx:   Option<std::sync::mpsc::Receiver<LanServerMsg>>,
 }
 
 impl Default for FileExplorer {
     fn default() -> Self {
-        let home       = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        let ai_config  = AiConfig::load();
-        let draft      = ai_config.clone();
+        let home      = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        let ai_config = AiConfig::load();
+        let draft     = ai_config.clone();
 
-        // Start LAN server
         let (srv_tx, srv_rx) = std::sync::mpsc::channel::<LanServerMsg>();
         let recv_dir = home.clone();
         thread::spawn(move || lan_receive_server(srv_tx, recv_dir));
@@ -243,13 +261,15 @@ impl Default for FileExplorer {
             ai_config,
             show_ai_settings: false,
             ai_settings_draft: draft,
+            show_ai_panel: true,
+
+            dark_mode: true,
 
             lan_state: LanTransferState::Idle,
             lan_file_path: None,
             lan_discover_rx: None,
             lan_transfer_rx: None,
             lan_server_rx: Some(srv_rx),
-            lan_receive_dir: home.clone(),
         };
         explorer.load_directory(&home);
         explorer
@@ -270,9 +290,8 @@ impl FileExplorer {
                     let name = entry.file_name().to_string_lossy().to_string();
                     if !self.show_hidden && name.starts_with('.') { continue; }
                     if let Ok(metadata) = entry.metadata() {
-                        let extension = entry.path()
-                            .extension().and_then(|e| e.to_str())
-                            .unwrap_or("").to_string();
+                        let extension = entry.path().extension()
+                            .and_then(|e| e.to_str()).unwrap_or("").to_string();
                         self.entries.push(DirEntry {
                             name, path: entry.path(),
                             is_dir: metadata.is_dir(),
@@ -310,11 +329,9 @@ impl FileExplorer {
         if self.search_query.is_empty() {
             self.filtered_entries = (0..self.entries.len()).collect();
         } else {
-            let query = self.search_query.to_lowercase();
+            let q = self.search_query.to_lowercase();
             for (i, entry) in self.entries.iter().enumerate() {
-                if entry.name.to_lowercase().contains(&query) {
-                    self.filtered_entries.push(i);
-                }
+                if entry.name.to_lowercase().contains(&q) { self.filtered_entries.push(i); }
             }
         }
     }
@@ -362,9 +379,22 @@ impl FileExplorer {
     }
 
     fn open_file(path: &Path) {
-        #[cfg(target_os = "linux")]   { let _ = std::process::Command::new("xdg-open").arg(path).spawn(); }
-        #[cfg(target_os = "macos")]   { let _ = std::process::Command::new("open").arg(path).spawn(); }
-        #[cfg(target_os = "windows")] { let _ = std::process::Command::new("cmd").args(["/C", "start", "", path.to_str().unwrap_or("")]).spawn(); }
+        #[cfg(target_os = "linux")]
+        { let _ = std::process::Command::new("xdg-open").arg(path).spawn(); }
+
+        #[cfg(target_os = "macos")]
+        { let _ = std::process::Command::new("open").arg(path).spawn(); }
+
+        // On Windows, use CREATE_NO_WINDOW so no console flash appears
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            let _ = std::process::Command::new("cmd")
+                .args(["/C", "start", "", path.to_str().unwrap_or("")])
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn();
+        }
     }
 
     fn copy_file(&mut self) {
@@ -383,7 +413,7 @@ impl FileExplorer {
             if let Some(&ei) = self.filtered_entries.get(idx) {
                 if let Some(e) = self.entries.get(ei) {
                     self.clipboard = Some((e.path.clone(), FileOperation::Cut));
-                    self.push_notification(format!("Cut \"{}\"", e.name), Color32::from_rgb(240, 180, 60));
+                    self.push_notification(format!("Cut \"{}\"", e.name), Color32::from_rgb(210, 160, 50));
                 }
             }
         }
@@ -415,17 +445,11 @@ impl FileExplorer {
                         let name = e.name.clone();
                         self.selected_file = None;
                         self.load_directory(&self.current_path.clone());
-                        self.push_notification(format!("Deleted \"{}\"", name), Color32::from_rgb(230, 80, 80));
+                        self.push_notification(format!("Deleted \"{}\"", name), Color32::from_rgb(210, 70, 70));
                     }
                 }
             }
         }
-    }
-
-    fn selected_path(&self) -> Option<PathBuf> {
-        let i  = self.selected_file?;
-        let ei = self.filtered_entries.get(i)?;
-        Some(self.entries.get(*ei)?.path.clone())
     }
 
     fn push_notification(&mut self, message: String, color: Color32) {
@@ -435,7 +459,7 @@ impl FileExplorer {
     fn format_size(bytes: u64) -> String {
         const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
         let mut size = bytes as f64;
-        let mut ui   = 0;
+        let mut ui   = 0usize;
         while size >= 1024.0 && ui < UNITS.len() - 1 { size /= 1024.0; ui += 1; }
         if ui == 0 { format!("{} {}", size as u64, UNITS[ui]) } else { format!("{:.2} {}", size, UNITS[ui]) }
     }
@@ -457,28 +481,28 @@ impl FileExplorer {
     fn get_file_icon(entry: &DirEntry) -> &'static str {
         if entry.is_dir { return "📁"; }
         match entry.extension.to_lowercase().as_str() {
-            "rs"                                       => "🦀",
-            "toml"                                     => "⚙️",
-            "md"                                       => "📝",
-            "txt"                                      => "📄",
-            "pdf"                                      => "📕",
-            "png"|"jpg"|"jpeg"|"gif"|"svg"|"bmp"       => "🖼️",
-            "mp3"|"wav"|"ogg"|"flac"                   => "🎵",
-            "mp4"|"avi"|"mkv"|"mov"                    => "🎬",
-            "zip"|"tar"|"gz"|"7z"|"rar"                => "📦",
-            "js"|"ts"|"jsx"|"tsx"                      => "🟨",
-            "py"                                       => "🐍",
-            "java"                                     => "☕",
-            "cpp"|"c"|"h"                              => "⚡",
-            "html"|"css"                               => "🌐",
-            "json"|"xml"|"yaml"|"yml"                  => "📋",
-            _                                          => "📄",
+            "rs"                                 => "🦀",
+            "toml"                               => "⚙️",
+            "md"                                 => "📝",
+            "txt"                                => "📄",
+            "pdf"                                => "📕",
+            "png"|"jpg"|"jpeg"|"gif"|"svg"|"bmp" => "🖼️",
+            "mp3"|"wav"|"ogg"|"flac"             => "🎵",
+            "mp4"|"avi"|"mkv"|"mov"              => "🎬",
+            "zip"|"tar"|"gz"|"7z"|"rar"          => "📦",
+            "js"|"ts"|"jsx"|"tsx"                => "🟨",
+            "py"                                 => "🐍",
+            "java"                               => "☕",
+            "cpp"|"c"|"h"                        => "⚡",
+            "html"|"css"                         => "🌐",
+            "json"|"xml"|"yaml"|"yml"            => "📋",
+            _                                    => "📄",
         }
     }
 
-    fn render_breadcrumbs(&mut self, ui: &mut egui::Ui) {
+    fn render_breadcrumbs(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Path:").color(Color32::from_rgb(100, 100, 120)).size(12.0));
+            ui.label(RichText::new("Path:").color(col_text2(ctx)).size(12.0));
             let mut components: Vec<PathBuf> = Vec::new();
             let mut current = self.current_path.as_path();
             components.push(current.to_path_buf());
@@ -490,16 +514,19 @@ impl FileExplorer {
             components.reverse();
             let mut nav: Option<PathBuf> = None;
             for (i, comp) in components.iter().enumerate() {
-                if i > 0 { ui.label(RichText::new("/").color(Color32::from_rgb(80, 80, 100))); }
-                let name = comp.file_name().and_then(|n| n.to_str()).unwrap_or_else(|| comp.to_str().unwrap_or(""));
-                if ui.link(RichText::new(name).size(12.0)).clicked() { nav = Some(comp.clone()); }
+                if i > 0 { ui.label(RichText::new("/").color(col_text2(ctx))); }
+                let name = comp.file_name().and_then(|n| n.to_str())
+                    .unwrap_or_else(|| comp.to_str().unwrap_or(""));
+                if ui.link(RichText::new(name).size(12.0).color(col_accent(ctx))).clicked() {
+                    nav = Some(comp.clone());
+                }
             }
             if let Some(p) = nav { self.navigate_to(p); }
         });
     }
 }
 
-// ─── AI chat methods ──────────────────────────────────────────────────────────
+// ─── AI chat ──────────────────────────────────────────────────────────────────
 
 impl FileExplorer {
     fn send_ai_message(&mut self) {
@@ -587,31 +614,25 @@ impl FileExplorer {
     }
 }
 
-// ─── LAN transfer methods ─────────────────────────────────────────────────────
+// ─── LAN ──────────────────────────────────────────────────────────────────────
 
 impl FileExplorer {
     fn start_lan_discover(&mut self, file_path: PathBuf) {
         self.lan_file_path = Some(file_path);
         self.lan_state     = LanTransferState::Discovering;
-        let (tx, rx)       = std::sync::mpsc::channel::<Vec<LanPeer>>();
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<LanPeer>>();
         self.lan_discover_rx = Some(rx);
 
         thread::spawn(move || {
             let mut peers: Vec<LanPeer> = Vec::new();
-
-            // Bind UDP socket and broadcast discovery ping
             if let Ok(sock) = UdpSocket::bind("0.0.0.0:0") {
                 let _ = sock.set_broadcast(true);
                 let _ = sock.set_read_timeout(Some(std::time::Duration::from_millis(200)));
                 let ping = b"ANVEL_DISCOVER";
                 let _ = sock.send_to(ping, ("255.255.255.255", LAN_DISCOVER_PORT));
-
-                // Also send to local subnets
                 for subnet in ["192.168.1.255", "192.168.0.255", "10.0.0.255"] {
                     let _ = sock.send_to(ping, (subnet, LAN_DISCOVER_PORT));
                 }
-
-                // Listen for responses for up to 2 seconds
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
                 let mut buf = [0u8; 256];
                 while std::time::Instant::now() < deadline {
@@ -620,60 +641,44 @@ impl FileExplorer {
                         if let Some(name) = msg.strip_prefix("ANVEL_PEER:") {
                             let peer = LanPeer {
                                 display: format!("{} ({})", name.trim(), addr.ip()),
-                                addr:    addr.ip(),
+                                addr: addr.ip(),
                             };
-                            if !peers.iter().any(|p| p.addr == peer.addr) {
-                                peers.push(peer);
-                            }
+                            if !peers.iter().any(|p| p.addr == peer.addr) { peers.push(peer); }
                         }
                     }
                 }
             }
-
             let _ = tx.send(peers);
         });
 
-        // Simultaneously advertise ourselves
-        thread::spawn(|| {
-            let _ = lan_advertise_once();
-        });
+        thread::spawn(|| { let _ = lan_advertise_once(); });
     }
 
     fn start_lan_send(&mut self, peer: LanPeer) {
         let Some(file_path) = self.lan_file_path.clone() else { return };
         let peer_name = peer.display.clone();
-        self.lan_state = LanTransferState::Sending { peer_name: peer_name.clone(), progress: 0.0 };
-
+        self.lan_state = LanTransferState::Sending { peer_name, progress: 0.0 };
         let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
         self.lan_transfer_rx = Some(rx);
-
-        thread::spawn(move || {
-            let result = lan_send_file(&file_path, peer.addr);
-            let _ = tx.send(result);
-        });
+        thread::spawn(move || { let _ = tx.send(lan_send_file(&file_path, peer.addr)); });
     }
 
     fn poll_lan(&mut self) {
-        // Poll discovery
         if let Some(rx) = &self.lan_discover_rx {
             if let Ok(peers) = rx.try_recv() {
                 self.lan_discover_rx = None;
                 self.lan_state = LanTransferState::Ready(peers);
             }
         }
-
-        // Poll transfer
         if let Some(rx) = &self.lan_transfer_rx {
             if let Ok(result) = rx.try_recv() {
                 self.lan_transfer_rx = None;
-                match result {
-                    Ok(())   => self.lan_state = LanTransferState::Done("File sent successfully!".into()),
-                    Err(e)   => self.lan_state = LanTransferState::Err(e),
-                }
+                self.lan_state = match result {
+                    Ok(())  => LanTransferState::Done("File sent successfully!".into()),
+                    Err(e)  => LanTransferState::Err(e),
+                };
             }
         }
-
-        // Poll incoming files
         let server_msgs: Vec<LanServerMsg> = if let Some(rx) = &self.lan_server_rx {
             let mut msgs = Vec::new();
             while let Ok(msg) = rx.try_recv() { msgs.push(msg); }
@@ -681,12 +686,22 @@ impl FileExplorer {
         } else { Vec::new() };
         for msg in server_msgs {
             match msg {
-                LanServerMsg::FileReceived { name, dest: _ } => {
-                    self.push_notification(format!("📥 Received: {}", name), Color32::from_rgb(80, 200, 140));
+                LanServerMsg::FileReceived { name, dest } => {
+                    // Show the folder where the file was saved
+                    let folder = dest.parent()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "home".to_string());
+                    self.push_notification(
+                        format!("📥 Received \"{}\" → {}", name, folder),
+                        Color32::from_rgb(80, 180, 120),
+                    );
+                    // Refresh the file list if the file landed in the current folder
+                    if dest.parent().map_or(false, |p| p == self.current_path) {
+                        self.load_directory(&self.current_path.clone());
+                    }
                 }
-                LanServerMsg::Error(e) => {
-                    self.push_notification(format!("LAN error: {}", e), Color32::from_rgb(220, 80, 80));
-                }
+                LanServerMsg::Error(e) =>
+                    self.push_notification(format!("LAN error: {}", e), Color32::from_rgb(210, 70, 70)),
             }
         }
     }
@@ -696,9 +711,13 @@ impl FileExplorer {
 
 impl FileExplorer {
     fn show_top_panel(&mut self, ctx: &egui::Context) {
+        let bg  = col_surface2(ctx);
+        let txt = col_text(ctx);
+        let t2  = col_text2(ctx);
+
         egui::TopBottomPanel::top("top_panel")
-            .frame(egui::Frame::default()
-                .fill(Color32::from_rgb(22, 22, 32))
+            .frame(egui::Frame::new()
+                .fill(bg)
                 .inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 6 }))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -706,12 +725,16 @@ impl FileExplorer {
                     let forward_en = self.history_index < self.path_history.len() - 1;
 
                     ui.add_enabled_ui(back_en, |ui| {
-                        if ui.button(RichText::new("◀").size(15.0)).on_hover_text("Back (Alt+←)").clicked() { self.go_back(); }
+                        if ui.button(RichText::new("◀").size(15.0).color(txt))
+                            .on_hover_text("Back (Alt+←)").clicked() { self.go_back(); }
                     });
                     ui.add_enabled_ui(forward_en, |ui| {
-                        if ui.button(RichText::new("▶").size(15.0)).on_hover_text("Forward (Alt+→)").clicked() { self.go_forward(); }
+                        if ui.button(RichText::new("▶").size(15.0).color(txt))
+                            .on_hover_text("Forward (Alt+→)").clicked() { self.go_forward(); }
                     });
-                    if ui.button(RichText::new("⬆").size(15.0)).on_hover_text("Up").clicked()   { self.go_up(); }
+                    if ui.button(RichText::new("⬆").size(15.0).color(txt)).on_hover_text("Up").clicked() {
+                        self.go_up();
+                    }
                     if ui.button(RichText::new("🏠").size(15.0)).on_hover_text("Home").clicked() {
                         if let Some(home) = dirs::home_dir() { self.navigate_to(home); }
                     }
@@ -723,8 +746,7 @@ impl FileExplorer {
 
                     let search_resp = ui.add(
                         egui::TextEdit::singleline(&mut self.search_query)
-                            .hint_text("🔍  Search…")
-                            .desired_width(200.0),
+                            .hint_text("🔍  Search…").desired_width(200.0),
                     );
                     if search_resp.changed() { self.apply_filter(); }
 
@@ -734,61 +756,98 @@ impl FileExplorer {
                         self.show_hidden = !self.show_hidden;
                         self.load_directory(&self.current_path.clone());
                     }
+
+                    // Right-aligned: theme toggle + AI panel toggle
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let (ai_icon, ai_tip) = if self.show_ai_panel {
+                            ("🤖 ✕", "Hide AI assistant (Ctrl+Shift+A)")
+                        } else {
+                            ("🤖", "Show AI assistant (Ctrl+Shift+A)")
+                        };
+                        let ai_color = if self.show_ai_panel { col_accent(ctx) } else { t2 };
+                        if ui.button(RichText::new(ai_icon).size(14.0).color(ai_color))
+                            .on_hover_text(ai_tip).clicked()
+                        {
+                            self.show_ai_panel = !self.show_ai_panel;
+                        }
+
+                        ui.add_space(2.0);
+
+                        let (theme_icon, theme_tip) = if self.dark_mode {
+                            ("☀", "Light mode")
+                        } else {
+                            ("🌙", "Dark mode")
+                        };
+                        if ui.button(RichText::new(theme_icon).size(15.0).color(t2))
+                            .on_hover_text(theme_tip).clicked()
+                        {
+                            self.dark_mode = !self.dark_mode;
+                        }
+                    });
                 });
 
                 ui.add_space(3.0);
-                self.render_breadcrumbs(ui);
+                self.render_breadcrumbs(ui, ctx);
                 ui.add_space(3.0);
             });
     }
 
     fn show_toolbar(&mut self, ctx: &egui::Context) {
+        let bg = col_surface3(ctx);
+        let t2 = col_text2(ctx);
+
         egui::TopBottomPanel::top("toolbar")
-            .frame(egui::Frame::default()
-                .fill(Color32::from_rgb(26, 26, 36))
+            .frame(egui::Frame::new()
+                .fill(bg)
                 .inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 4 }))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Sort:").color(Color32::from_rgb(100, 100, 120)).size(12.0));
+                    ui.label(RichText::new("Sort:").color(t2).size(12.0));
                     for (label, s) in [("Name", SortBy::Name), ("Size", SortBy::Size), ("Modified", SortBy::Modified), ("Type", SortBy::Type)] {
                         if ui.selectable_label(self.sort_by == s, RichText::new(label).size(12.0)).clicked() {
                             self.sort_by = s; self.sort_entries(); self.apply_filter();
                         }
                     }
                     ui.separator();
-                    ui.label(RichText::new("View:").color(Color32::from_rgb(100, 100, 120)).size(12.0));
-                    if ui.selectable_label(self.view_mode == ViewMode::List,    RichText::new("List").size(12.0)).clicked()    { self.view_mode = ViewMode::List; }
-                    if ui.selectable_label(self.view_mode == ViewMode::Details, RichText::new("Details").size(12.0)).clicked() { self.view_mode = ViewMode::Details; }
-
+                    ui.label(RichText::new("View:").color(t2).size(12.0));
+                    if ui.selectable_label(self.view_mode == ViewMode::List, RichText::new("List").size(12.0)).clicked() {
+                        self.view_mode = ViewMode::List;
+                    }
+                    if ui.selectable_label(self.view_mode == ViewMode::Details, RichText::new("Details").size(12.0)).clicked() {
+                        self.view_mode = ViewMode::Details;
+                    }
                     if let Some((p, op)) = &self.clipboard {
                         ui.separator();
                         let label = match op { FileOperation::Copy => "📋 Clipboard: ", FileOperation::Cut => "✂️ Clipboard: " };
                         let fname = p.file_name().unwrap_or_default().to_string_lossy();
-                        ui.label(RichText::new(format!("{}{}", label, fname)).color(Color32::from_rgb(100, 160, 255)).size(12.0));
+                        ui.label(RichText::new(format!("{}{}", label, fname)).color(col_accent(ctx)).size(12.0));
                     }
                 });
             });
     }
 
     fn show_bottom_panel(&mut self, ctx: &egui::Context) {
+        let bg = col_surface(ctx);
+        let t2 = col_text2(ctx);
+        let ac = col_accent(ctx);
+
         egui::TopBottomPanel::bottom("bottom_panel")
-            .frame(egui::Frame::default()
-                .fill(Color32::from_rgb(18, 18, 26))
+            .frame(egui::Frame::new()
+                .fill(bg)
                 .inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 4 }))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("{} item{}", self.filtered_entries.len(),
-                        if self.filtered_entries.len() == 1 { "" } else { "s" }))
-                        .color(Color32::from_rgb(100, 100, 130)).size(12.0));
+                        if self.filtered_entries.len() == 1 { "" } else { "s" })).color(t2).size(12.0));
 
                     if let Some(idx) = self.selected_file {
                         if let Some(&ei) = self.filtered_entries.get(idx) {
                             if let Some(e) = self.entries.get(ei) {
                                 ui.separator();
-                                ui.label(RichText::new(&e.name).color(Color32::from_rgb(130, 160, 220)).size(12.0));
+                                ui.label(RichText::new(&e.name).color(ac).size(12.0));
                                 if !e.is_dir {
                                     ui.separator();
-                                    ui.label(RichText::new(Self::format_size(e.size)).color(Color32::from_rgb(100, 100, 130)).size(12.0));
+                                    ui.label(RichText::new(Self::format_size(e.size)).color(t2).size(12.0));
                                 }
                             }
                         }
@@ -796,7 +855,7 @@ impl FileExplorer {
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(RichText::new("Ctrl+C/X/V  Del  F5  Right-click  @ in chat")
-                            .color(Color32::from_rgb(80, 80, 100)).size(11.0));
+                            .color(t2).size(11.0));
                     });
                 });
             });
@@ -806,7 +865,7 @@ impl FileExplorer {
 
     fn show_file_list(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         if let Some(ref err) = self.error_message.clone() {
-            ui.colored_label(Color32::from_rgb(220, 80, 80), RichText::new(err).strong());
+            ui.colored_label(col_danger(ctx), RichText::new(err).strong());
             ui.add_space(8.0);
         }
 
@@ -815,130 +874,163 @@ impl FileExplorer {
                 ui.add_space(80.0);
                 ui.label(RichText::new("📂").size(48.0));
                 ui.add_space(8.0);
-                ui.label(RichText::new("No files here").size(18.0).color(Color32::from_rgb(100, 100, 130)));
+                ui.label(RichText::new("No files here").size(18.0).color(col_text2(ctx)));
             });
             return;
         }
 
-        let mut navigate_to_path: Option<PathBuf>             = None;
+        let mut navigate_to_path: Option<PathBuf>            = None;
         let mut ctx_menu:         Option<(egui::Pos2, usize)> = None;
-        let mut rename_done:      Option<(usize, String)>      = None;
+        let mut rename_done:      Option<(usize, String)>     = None;
 
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            match self.view_mode {
-                ViewMode::List => {
-                    ui.spacing_mut().item_spacing = Vec2::new(0.0, 1.0);
-                    for (i, &ei) in self.filtered_entries.iter().enumerate() {
-                        if let Some(entry) = self.entries.get(ei) {
-                            let is_sel = self.selected_file == Some(i);
-                            if self.renaming.as_ref().map(|(ri, _)| *ri) == Some(i) {
-                                let (_, nn) = self.renaming.as_mut().unwrap();
-                                let r = ui.add(egui::TextEdit::singleline(nn).desired_width(220.0));
-                                if r.lost_focus() || ui.input(|inp| inp.key_pressed(egui::Key::Enter)) {
-                                    rename_done = self.renaming.clone();
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                match self.view_mode {
+                    ViewMode::List => {
+                        ui.spacing_mut().item_spacing = Vec2::new(0.0, 1.0);
+                        for (i, &ei) in self.filtered_entries.iter().enumerate() {
+                            if let Some(entry) = self.entries.get(ei) {
+                                let is_sel = self.selected_file == Some(i);
+
+                                if self.renaming.as_ref().map(|(ri, _)| *ri) == Some(i) {
+                                    let (_, nn) = self.renaming.as_mut().unwrap();
+                                    let r = ui.add(egui::TextEdit::singleline(nn).desired_width(220.0));
+                                    if r.lost_focus() || ui.input(|inp| inp.key_pressed(egui::Key::Enter)) {
+                                        rename_done = self.renaming.clone();
+                                    }
+                                    if ui.input(|inp| inp.key_pressed(egui::Key::Escape)) {
+                                        rename_done = Some((i, String::new()));
+                                    }
+                                    continue;
                                 }
-                                if ui.input(|inp| inp.key_pressed(egui::Key::Escape)) {
-                                    rename_done = Some((i, String::new()));
+
+                                // FIX: Button::selectable replaces deprecated SelectableLabel
+                                let label_text = format!("{} {}", Self::get_file_icon(entry), entry.name);
+                                let resp = ui.add_sized(
+                                    [ui.available_width(), 24.0],
+                                    egui::Button::selectable(
+                                        is_sel,
+                                        RichText::new(label_text).size(14.0),
+                                    ),
+                                );
+                                if resp.clicked()        { self.selected_file = Some(i); }
+                                if resp.double_clicked() {
+                                    if entry.is_dir { navigate_to_path = Some(entry.path.clone()); }
+                                    else            { Self::open_file(&entry.path); }
                                 }
-                                continue;
-                            }
-                            let resp = ui.selectable_label(is_sel,
-                                RichText::new(format!("{} {}", Self::get_file_icon(entry), entry.name)).size(14.0));
-                            if resp.clicked()        { self.selected_file = Some(i); }
-                            if resp.double_clicked() {
-                                if entry.is_dir { navigate_to_path = Some(entry.path.clone()); }
-                                else            { Self::open_file(&entry.path); }
-                            }
-                            if resp.secondary_clicked() {
-                                if let Some(pos) = ctx.input(|inp| inp.pointer.interact_pos()) {
-                                    ctx_menu = Some((pos, ei));
-                                    self.selected_file = Some(i);
+                                if resp.secondary_clicked() {
+                                    if let Some(pos) = ctx.input(|inp| inp.pointer.interact_pos()) {
+                                        ctx_menu = Some((pos, ei));
+                                        self.selected_file = Some(i);
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                ViewMode::Details => {
-                    use egui_extras::{Column, TableBuilder};
-                    let mut nav:    Option<PathBuf>             = None;
-                    let mut cmenu:  Option<(egui::Pos2, usize)> = None;
-                    let mut rndone: Option<(usize, String)>     = None;
+                    ViewMode::Details => {
+                        use egui_extras::{Column, TableBuilder};
+                        let mut nav:    Option<PathBuf>            = None;
+                        let mut cmenu:  Option<(egui::Pos2, usize)> = None;
+                        let mut rndone: Option<(usize, String)>    = None;
+                        let t2 = col_text2(ctx);
 
-                    TableBuilder::new(ui)
-                        .striped(true)
-                        .sense(egui::Sense::click())
-                        .column(Column::auto().at_least(280.0))
-                        .column(Column::auto().at_least(80.0))
-                        .column(Column::auto().at_least(110.0))
-                        .column(Column::auto().at_least(70.0))
-                        .header(22.0, |mut h| {
-                            h.col(|ui| { ui.strong("Name"); });
-                            h.col(|ui| { ui.strong("Size"); });
-                            h.col(|ui| { ui.strong("Modified"); });
-                            h.col(|ui| { ui.strong("Type"); });
-                        })
-                        .body(|mut body| {
-                            for (i, &ei) in self.filtered_entries.iter().enumerate() {
-                                if let Some(entry) = self.entries.get(ei) {
-                                    let is_sel = self.selected_file == Some(i);
-                                    body.row(22.0, |mut row| {
-                                        row.set_selected(is_sel);
-                                        let (_, nr) = row.col(|ui| {
-                                            if self.renaming.as_ref().map(|(ri, _)| *ri) == Some(i) {
-                                                let (_, nn) = self.renaming.as_mut().unwrap();
-                                                let r = ui.add(egui::TextEdit::singleline(nn).desired_width(200.0));
-                                                if r.lost_focus() || ui.input(|inp| inp.key_pressed(egui::Key::Enter)) {
-                                                    rndone = self.renaming.clone();
+                        TableBuilder::new(ui)
+                            .striped(true)
+                            .sense(egui::Sense::click())
+                            .column(Column::remainder().at_least(200.0))
+                            .column(Column::auto().at_least(80.0))
+                            .column(Column::auto().at_least(110.0))
+                            .column(Column::auto().at_least(60.0))
+                            .header(22.0, |mut h| {
+                                h.col(|ui| { ui.strong("Name"); });
+                                h.col(|ui| { ui.strong("Size"); });
+                                h.col(|ui| { ui.strong("Modified"); });
+                                h.col(|ui| { ui.strong("Type"); });
+                            })
+                            .body(|mut body| {
+                                for (i, &ei) in self.filtered_entries.iter().enumerate() {
+                                    if let Some(entry) = self.entries.get(ei) {
+                                        let is_sel = self.selected_file == Some(i);
+                                        // Capture interactions via label responses; body.row()
+                                        // returns () in egui 0.33 so we can't call .clicked() on it.
+                                        let mut row_click  = false;
+                                        let mut row_dbl    = false;
+                                        let mut row_rclick = false;
+                                        let mut row_rect   = egui::Rect::NOTHING;
+
+                                        body.row(24.0, |mut row| {
+                                            row.set_selected(is_sel);
+                                            row.col(|ui| {
+                                                if self.renaming.as_ref().map(|(ri, _)| *ri) == Some(i) {
+                                                    let (_, nn) = self.renaming.as_mut().unwrap();
+                                                    let r = ui.add(egui::TextEdit::singleline(nn).desired_width(200.0));
+                                                    if r.lost_focus() || ui.input(|inp| inp.key_pressed(egui::Key::Enter)) {
+                                                        rndone = self.renaming.clone();
+                                                    }
+                                                } else {
+                                                    let r = ui.label(RichText::new(
+                                                        format!("{} {}", Self::get_file_icon(entry), entry.name)
+                                                    ));
+                                                    row_rect = r.rect;
+                                                    if r.clicked()          { row_click  = true; }
+                                                    if r.double_clicked()   { row_dbl    = true; }
+                                                    if r.secondary_clicked(){ row_rclick = true; }
                                                 }
-                                            } else {
-                                                ui.label(RichText::new(format!("{} {}", Self::get_file_icon(entry), entry.name)));
-                                            }
+                                            });
+                                            row.col(|ui| {
+                                                if !entry.is_dir {
+                                                    ui.label(RichText::new(Self::format_size(entry.size)).color(t2));
+                                                }
+                                            });
+                                            row.col(|ui| {
+                                                ui.label(RichText::new(Self::format_time(entry.modified)).color(t2));
+                                            });
+                                            row.col(|ui| {
+                                                let t = if entry.is_dir { "Folder" } else if entry.extension.is_empty() { "File" } else { &entry.extension };
+                                                ui.label(RichText::new(t).color(t2));
+                                            });
                                         });
-                                        row.col(|ui| {
-                                            if !entry.is_dir {
-                                                ui.label(RichText::new(Self::format_size(entry.size)).color(Color32::from_rgb(120, 120, 150)));
-                                            }
-                                        });
-                                        row.col(|ui| {
-                                            ui.label(RichText::new(Self::format_time(entry.modified)).color(Color32::from_rgb(120, 120, 150)));
-                                        });
-                                        row.col(|ui| {
-                                            let t = if entry.is_dir { "Folder" } else if entry.extension.is_empty() { "File" } else { &entry.extension };
-                                            ui.label(RichText::new(t).color(Color32::from_rgb(120, 120, 150)));
-                                        });
-                                        if nr.clicked()        { self.selected_file = Some(i); }
-                                        if nr.double_clicked() {
+
+                                        if row_click  { self.selected_file = Some(i); }
+                                        if row_dbl    {
                                             if entry.is_dir { nav = Some(entry.path.clone()); }
                                             else            { Self::open_file(&entry.path); }
                                         }
-                                        if nr.secondary_clicked() {
-                                            if let Some(pos) = ctx.input(|inp| inp.pointer.interact_pos()) {
-                                                cmenu = Some((pos, ei));
-                                                self.selected_file = Some(i);
-                                            }
+                                        if row_rclick {
+                                            let pos = ctx.input(|inp| inp.pointer.interact_pos())
+                                                .unwrap_or(row_rect.left_bottom());
+                                            cmenu = Some((pos, ei));
+                                            self.selected_file = Some(i);
                                         }
-                                    });
+                                    }
                                 }
-                            }
-                        });
+                            });
 
-                    if let Some(p) = nav    { navigate_to_path = Some(p); }
-                    if let Some(c) = cmenu  { ctx_menu         = Some(c); }
-                    if let Some(r) = rndone { rename_done      = Some(r); }
+                        if let Some(p) = nav    { navigate_to_path = Some(p); }
+                        if let Some(c) = cmenu  { ctx_menu         = Some(c); }
+                        if let Some(r) = rndone { rename_done      = Some(r); }
+                    }
                 }
-            }
-        });
+            });
 
         if let Some(path) = navigate_to_path { self.navigate_to(path); }
         if let Some((pos, idx)) = ctx_menu {
-            self.context_menu = Some(ContextMenuState { pos, entry_idx: idx });
+            self.context_menu = Some(ContextMenuState {
+                pos,
+                entry_idx:    idx,
+                // FIX: cumulative_pass_nr() replaces the removed frame_nr()
+                opened_frame: ctx.cumulative_pass_nr(),
+            });
         }
         if let Some((i, new_name)) = rename_done {
             if !new_name.is_empty() {
-                if let Some(entry) = self.entries.get(i) {
-                    let new_path = entry.path.parent().unwrap().join(&new_name);
-                    let _ = fs::rename(&entry.path, &new_path);
+                if let Some(&ei) = self.filtered_entries.get(i) {
+                    if let Some(entry) = self.entries.get(ei) {
+                        let new_path = entry.path.parent().unwrap().join(&new_name);
+                        let _ = fs::rename(&entry.path, &new_path);
+                    }
                 }
             }
             self.renaming = None;
@@ -950,92 +1042,123 @@ impl FileExplorer {
 
     fn show_context_menu(&mut self, ctx: &egui::Context) {
         let Some(ref cm) = self.context_menu else { return };
-        let pos = cm.pos; let ei = cm.entry_idx;
+        let pos          = cm.pos;
+        let ei           = cm.entry_idx;
+        let opened_frame = cm.opened_frame;
+
         let (epath, ename, eis_dir, esize, eext) = {
             let Some(e) = self.entries.get(ei) else { self.context_menu = None; return };
             (e.path.clone(), e.name.clone(), e.is_dir, e.size, e.extension.clone())
         };
-        let mut close = false;
+
+        let mut close  = false;
         let mut action: Option<String> = None;
 
-        egui::Area::new(egui::Id::new("ctx_menu"))
-            .fixed_pos(pos).order(egui::Order::Foreground)
+        let bg     = col_surface2(ctx);
+        let border = col_border(ctx);
+        let txt    = col_text(ctx);
+
+        let area_resp = egui::Area::new(egui::Id::new("ctx_menu"))
+            .fixed_pos(pos)
+            .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                egui::Frame::popup(ui.style())
-                    .fill(Color32::from_rgb(28, 28, 40))
-                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 60, 90)))
+                egui::Frame::new()
+                    .fill(bg)
+                    .stroke(egui::Stroke::new(1.0, border))
                     .corner_radius(10.0)
+                    .shadow(egui::Shadow { offset: [2, 6], blur: 14, spread: 0, color: Color32::from_black_alpha(60) })
+                    .inner_margin(egui::Margin { left: 4, right: 4, top: 6, bottom: 6 })
                     .show(ui, |ui| {
                         ui.set_min_width(220.0);
                         ui.add_space(6.0);
                         ui.horizontal(|ui| {
                             ui.add_space(10.0);
                             let icon = if eis_dir { "📁" } else { Self::get_file_icon(self.entries.get(ei).unwrap()) };
-                            ui.label(RichText::new(format!("{} {}", icon, ename))
-                                .color(Color32::from_rgb(180, 190, 220)).size(13.0).strong());
+                            ui.label(RichText::new(format!("{} {}", icon, ename)).color(txt).size(13.0).strong());
                         });
                         ui.add_space(4.0);
                         ui.separator();
-                        if menu_item(ui, "↩️", "Open")               { action = Some("open".into());   close = true; }
-                        if menu_item(ui, "✏️", "Rename")             { action = Some("rename".into()); close = true; }
-                        if menu_item(ui, "📋", "Copy")               { action = Some("copy".into());   close = true; }
-                        if menu_item(ui, "✂️", "Cut")                { action = Some("cut".into());    close = true; }
+                        if menu_item(ui, "↩️", "Open",              ctx) { action = Some("open".into());       close = true; }
+                        if menu_item(ui, "✏️", "Rename",            ctx) { action = Some("rename".into());     close = true; }
+                        if menu_item(ui, "📋", "Copy",              ctx) { action = Some("copy".into());       close = true; }
+                        if menu_item(ui, "✂️", "Cut",               ctx) { action = Some("cut".into());        close = true; }
                         if self.clipboard.is_some() {
-                            if menu_item(ui, "📌", "Paste Here")     { action = Some("paste".into());  close = true; }
+                            if menu_item(ui, "📌", "Paste Here",    ctx) { action = Some("paste".into());      close = true; }
                         }
                         ui.separator();
-                        if menu_item(ui, "🤖", "Ask AI about this")  { action = Some("ai".into());     close = true; }
-                        if menu_item(ui, "ℹ️", "Properties")         { action = Some("props".into());  close = true; }
+                        if menu_item(ui, "🤖", "Ask AI about this", ctx) { action = Some("ai".into());         close = true; }
+                        if menu_item(ui, "ℹ️", "Properties",        ctx) { action = Some("props".into());      close = true; }
                         ui.separator();
                         ui.horizontal(|ui| {
                             ui.add_space(10.0);
-                            ui.label(RichText::new("Share via LAN").color(Color32::from_rgb(110, 110, 150)).size(11.0));
+                            ui.label(RichText::new("Share via LAN").color(col_text2(ctx)).size(11.0));
                         });
-                        if menu_item(ui, "🌐", "  Send over LAN")    { action = Some("share_lan".into()); close = true; }
-                        if menu_item(ui, "🔗", "  Copy Share Link")  { action = Some("share_link".into()); close = true; }
+                        if menu_item(ui, "🌐", "  Send over LAN",   ctx) { action = Some("share_lan".into());  close = true; }
+                        if menu_item(ui, "🔗", "  Copy Share Link", ctx) { action = Some("share_link".into()); close = true; }
                         ui.separator();
-                        if menu_item_danger(ui, "🗑️", "Delete")      { action = Some("delete".into()); close = true; }
+                        if menu_item_danger(ui, "🗑️", "Delete")         { action = Some("delete".into());      close = true; }
                         ui.add_space(4.0);
                     });
-                if ui.input(|i| i.pointer.any_click()) && !ui.rect_contains_pointer(ui.min_rect()) {
-                    close = true;
-                }
             });
+
+        // FIX: use cumulative_pass_nr() instead of the removed frame_nr().
+        // Guard: only close on click-outside after the pass that opened this menu,
+        // so the right-click that spawned it doesn't immediately close it.
+        if ctx.cumulative_pass_nr() > opened_frame {
+            let menu_rect = area_resp.response.rect;
+            let clicked_outside =
+                ctx.input(|i| i.pointer.primary_clicked() || i.pointer.secondary_clicked())
+                && !menu_rect.contains(ctx.input(|i| i.pointer.interact_pos().unwrap_or_default()));
+            if clicked_outside { close = true; }
+        }
 
         if close { self.context_menu = None; }
         let display_idx = self.filtered_entries.iter().position(|&e| e == ei);
 
         if let Some(act) = action {
             match act.as_str() {
-                "open"   => { if eis_dir { self.navigate_to(epath); } else { Self::open_file(&epath); } }
+                "open" => {
+                    if eis_dir { self.navigate_to(epath); } else { Self::open_file(&epath); }
+                }
                 "rename" => {
                     if let Some(di) = display_idx {
                         self.renaming = Some((di, ename.clone()));
                         self.selected_file = Some(di);
                     }
                 }
-                "copy"  => { self.clipboard = Some((epath, FileOperation::Copy)); self.push_notification(format!("Copied \"{}\"", ename), Color32::from_rgb(80, 200, 120)); }
-                "cut"   => { self.clipboard = Some((epath, FileOperation::Cut));  self.push_notification(format!("Cut \"{}\"", ename), Color32::from_rgb(240, 180, 60)); }
+                "copy" => {
+                    self.clipboard = Some((epath, FileOperation::Copy));
+                    self.push_notification(format!("Copied \"{}\"", ename), Color32::from_rgb(80, 180, 120));
+                }
+                "cut" => {
+                    self.clipboard = Some((epath, FileOperation::Cut));
+                    self.push_notification(format!("Cut \"{}\"", ename), Color32::from_rgb(210, 160, 50));
+                }
                 "paste" => { self.paste_file(); }
-                "delete" => { if let Some(di) = display_idx { self.selected_file = Some(di); } self.delete_file(); }
+                "delete" => {
+                    if let Some(di) = display_idx { self.selected_file = Some(di); }
+                    self.delete_file();
+                }
                 "ai" => {
                     self.chat_input = format!("@{} ", ename);
-                    self.mentioned_files.push(MentionedFile { name: ename.clone(), path: epath, is_dir: eis_dir, size: esize, ext: eext });
-                    self.push_notification(format!("Ready — type your question about \"{}\" in the chat", ename), Color32::from_rgb(100, 180, 255));
+                    self.mentioned_files.push(MentionedFile {
+                        name: ename.clone(), path: epath, is_dir: eis_dir, size: esize, ext: eext,
+                    });
+                    self.show_ai_panel = true;
+                    self.push_notification(
+                        format!("Ready — ask about \"{}\" in the chat", ename),
+                        col_accent(ctx),
+                    );
                 }
                 "props"      => { self.properties_dialog = Some(epath); }
                 "share_lan"  => {
-                    let path = epath.clone();
-                    if !eis_dir {
-                        self.start_lan_discover(path);
-                    } else {
-                        self.push_notification("LAN send: select a file (not a folder)".into(), Color32::from_rgb(220, 160, 60));
-                    }
+                    if !eis_dir { self.start_lan_discover(epath); }
+                    else { self.push_notification("LAN send: select a file, not a folder".into(), col_warn(ctx)); }
                 }
                 "share_link" => {
                     let link = format!("anvel://share/{:016x}", fnv_hash(&ename));
-                    ctx.copy_text(link.clone());
-                    self.push_notification("Share link copied to clipboard".into(), Color32::from_rgb(80, 180, 120));
+                    ctx.copy_text(link);
+                    self.push_notification("Share link copied to clipboard".into(), col_success(ctx));
                 }
                 _ => {}
             }
@@ -1047,22 +1170,27 @@ impl FileExplorer {
     fn show_lan_dialog(&mut self, ctx: &egui::Context) {
         if matches!(self.lan_state, LanTransferState::Idle) { return; }
 
-        let mut close = false;
+        let mut close   = false;
         let mut send_to: Option<LanPeer> = None;
+
+        let bg     = col_surface2(ctx);
+        let border = col_border(ctx);
+        let txt    = col_text(ctx);
+        let t2     = col_text2(ctx);
+        let ac     = col_accent(ctx);
 
         egui::Window::new("🌐  LAN File Transfer")
             .collapsible(false).resizable(false).min_width(380.0)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-            .frame(egui::Frame::window(&ctx.style())
-                .fill(Color32::from_rgb(22, 24, 36))
-                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 80, 140)))
+            .frame(egui::Frame::new()
+                .fill(bg)
+                .stroke(egui::Stroke::new(1.0, border))
                 .corner_radius(12.0))
             .show(ctx, |ui| {
                 if let Some(ref path) = self.lan_file_path {
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("File:").color(Color32::from_rgb(120, 130, 160)).size(12.0));
-                        ui.label(RichText::new(path.file_name().unwrap_or_default().to_string_lossy())
-                            .strong().color(Color32::from_rgb(180, 200, 240)));
+                        ui.label(RichText::new("File:").color(t2).size(12.0));
+                        ui.label(RichText::new(path.file_name().unwrap_or_default().to_string_lossy()).strong().color(txt));
                     });
                     ui.add_space(8.0);
                 }
@@ -1071,45 +1199,39 @@ impl FileExplorer {
                     LanTransferState::Discovering => {
                         ui.horizontal(|ui| {
                             ui.spinner();
-                            ui.label(RichText::new("Scanning local network for peers…")
-                                .color(Color32::from_rgb(160, 180, 220)));
+                            ui.label(RichText::new("Scanning local network for peers…").color(txt));
                         });
                         ui.add_space(6.0);
                         ui.label(RichText::new("Make sure the other device is running Anvel and on the same network.")
-                            .color(Color32::from_rgb(100, 110, 140)).size(11.0));
+                            .color(t2).size(11.0));
                         ctx.request_repaint_after(std::time::Duration::from_millis(100));
                     }
-
                     LanTransferState::Ready(peers) => {
                         if peers.is_empty() {
                             ui.vertical_centered(|ui| {
-                                ui.add_space(8.0);
                                 ui.label(RichText::new("📡").size(32.0));
-                                ui.label(RichText::new("No peers found on the local network.")
-                                    .color(Color32::from_rgb(180, 180, 200)));
-                                ui.add_space(4.0);
-                                ui.label(RichText::new("Ensure the other device is running Anvel\nand connected to the same WiFi/LAN.")
-                                    .color(Color32::from_rgb(100, 110, 140)).size(11.0));
+                                ui.label(RichText::new("No peers found on the local network.").color(txt));
+                                ui.label(RichText::new("Ensure the other device is running Anvel on the same WiFi/LAN.")
+                                    .color(t2).size(11.0));
                             });
                         } else {
-                            ui.label(RichText::new("Select a device to send to:")
-                                .color(Color32::from_rgb(130, 150, 200)).size(12.0));
+                            ui.label(RichText::new("Select a device to send to:").color(t2).size(12.0));
                             ui.add_space(6.0);
                             for peer in peers {
                                 let peer = peer.clone();
-                                egui::Frame::default()
-                                    .fill(Color32::from_rgb(30, 34, 50))
+                                egui::Frame::new()
+                                    .fill(col_surface3(ctx))
                                     .corner_radius(8.0)
                                     .inner_margin(egui::Margin { left: 10, right: 10, top: 6, bottom: 6 })
                                     .show(ui, |ui| {
                                         ui.horizontal(|ui| {
                                             ui.label(RichText::new("💻").size(20.0));
                                             ui.vertical(|ui| {
-                                                ui.label(RichText::new(&peer.display).strong().color(Color32::from_rgb(200, 210, 240)));
-                                                ui.label(RichText::new(peer.addr.to_string()).color(Color32::from_rgb(100, 120, 160)).size(11.0));
+                                                ui.label(RichText::new(&peer.display).strong().color(txt));
+                                                ui.label(RichText::new(peer.addr.to_string()).color(t2).size(11.0));
                                             });
                                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                if ui.button(RichText::new("Send →").color(Color32::from_rgb(80, 180, 255))).clicked() {
+                                                if ui.button(RichText::new("Send →").color(ac)).clicked() {
                                                     send_to = Some(peer.clone());
                                                 }
                                             });
@@ -1119,31 +1241,25 @@ impl FileExplorer {
                             }
                         }
                     }
-
                     LanTransferState::Sending { peer_name, progress } => {
                         let progress = *progress;
-                        ui.label(RichText::new(format!("Sending to {}…", peer_name))
-                            .color(Color32::from_rgb(160, 200, 240)));
+                        ui.label(RichText::new(format!("Sending to {}…", peer_name)).color(txt));
                         ui.add_space(8.0);
                         ui.add(egui::ProgressBar::new(progress).animate(true).show_percentage());
                         ctx.request_repaint_after(std::time::Duration::from_millis(50));
                     }
-
                     LanTransferState::Done(msg) => {
                         ui.vertical_centered(|ui| {
-                            ui.add_space(8.0);
                             ui.label(RichText::new("✅").size(36.0));
-                            ui.label(RichText::new(msg).strong().color(Color32::from_rgb(80, 220, 130)).size(15.0));
+                            ui.label(RichText::new(msg).strong().color(col_success(ctx)).size(15.0));
                         });
                     }
-
                     LanTransferState::Err(e) => {
                         ui.vertical_centered(|ui| {
                             ui.label(RichText::new("❌").size(36.0));
-                            ui.label(RichText::new(e).color(Color32::from_rgb(220, 80, 80)));
+                            ui.label(RichText::new(e).color(col_danger(ctx)));
                         });
                     }
-
                     LanTransferState::Idle => {}
                 }
 
@@ -1152,9 +1268,7 @@ impl FileExplorer {
                 ui.horizontal(|ui| {
                     if matches!(&self.lan_state, LanTransferState::Ready(_) | LanTransferState::Err(_)) {
                         if ui.button("🔄 Rescan").clicked() {
-                            if let Some(path) = self.lan_file_path.clone() {
-                                self.start_lan_discover(path);
-                            }
+                            if let Some(path) = self.lan_file_path.clone() { self.start_lan_discover(path); }
                         }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1171,11 +1285,11 @@ impl FileExplorer {
 
     fn show_properties_dialog(&mut self, ctx: &egui::Context) {
         let Some(ref path) = self.properties_dialog.clone() else { return };
-        let name     = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-        let md       = fs::metadata(path).ok();
-        let size     = md.as_ref().map(|m| m.len()).unwrap_or(0);
-        let is_dir   = md.as_ref().map(|m| m.is_dir()).unwrap_or(false);
-        let modified = md.as_ref().and_then(|m| m.modified().ok());
+        let name   = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let md     = fs::metadata(path).ok();
+        let size   = md.as_ref().map(|m| m.len()).unwrap_or(0);
+        let is_dir = md.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+        let mtime  = md.as_ref().and_then(|m| m.modified().ok());
         let mut open = true;
 
         egui::Window::new(format!("Properties — {}", name))
@@ -1183,12 +1297,12 @@ impl FileExplorer {
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
                 egui::Grid::new("props").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
-                    ui.label(RichText::new("Name:").strong()); ui.label(&name); ui.end_row();
-                    ui.label(RichText::new("Type:").strong()); ui.label(if is_dir { "Folder" } else { "File" }); ui.end_row();
-                    ui.label(RichText::new("Size:").strong()); ui.label(Self::format_size(size)); ui.end_row();
-                    ui.label(RichText::new("Modified:").strong()); ui.label(Self::format_time(modified)); ui.end_row();
+                    ui.label(RichText::new("Name:").strong());     ui.label(&name);                                    ui.end_row();
+                    ui.label(RichText::new("Type:").strong());     ui.label(if is_dir { "Folder" } else { "File" });  ui.end_row();
+                    ui.label(RichText::new("Size:").strong());     ui.label(Self::format_size(size));                 ui.end_row();
+                    ui.label(RichText::new("Modified:").strong()); ui.label(Self::format_time(mtime));                ui.end_row();
                     ui.label(RichText::new("Path:").strong());
-                    ui.label(RichText::new(path.to_string_lossy()).size(11.0).color(Color32::from_rgb(130, 140, 170)));
+                    ui.label(RichText::new(path.to_string_lossy()).size(11.0).color(col_text2(ctx)));
                     ui.end_row();
                 });
             });
@@ -1201,23 +1315,28 @@ impl FileExplorer {
         if self.notifications.is_empty() { return; }
         let screen = ctx.viewport_rect();
         let mut y  = screen.max.y - 16.0;
+        let bg     = col_surface2(ctx);
+        let fg     = col_text(ctx);
+
         for notif in self.notifications.iter().rev() {
             let age   = notif.created.elapsed().as_secs_f32();
             let alpha = ((5.0 - age).clamp(0.0, 1.0) * 255.0) as u8;
             let c     = notif.color;
+
             egui::Area::new(egui::Id::new(format!("notif_{:p}", notif)))
                 .fixed_pos(egui::pos2(screen.max.x - 350.0, y - 46.0))
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
-                    egui::Frame::default()
-                        .fill(Color32::from_rgba_unmultiplied(22, 24, 40, alpha))
+                    egui::Frame::new()
+                        .fill(Color32::from_rgba_unmultiplied(bg.r(), bg.g(), bg.b(), alpha))
                         .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), alpha)))
                         .corner_radius(10.0)
                         .inner_margin(egui::Margin { left: 14, right: 14, top: 9, bottom: 9 })
                         .show(ui, |ui| {
                             ui.set_max_width(310.0);
                             ui.label(RichText::new(&notif.message)
-                                .color(Color32::from_rgba_unmultiplied(210, 220, 245, alpha)).size(13.0));
+                                .color(Color32::from_rgba_unmultiplied(fg.r(), fg.g(), fg.b(), alpha))
+                                .size(13.0));
                         });
                 });
             y -= 54.0;
@@ -1226,61 +1345,53 @@ impl FileExplorer {
 
     // ── AI settings panel ─────────────────────────────────────────────────────
 
-    fn show_ai_settings_panel(&mut self, ui: &mut egui::Ui) {
-        egui::Frame::default()
-            .fill(Color32::from_rgb(20, 22, 36))
-            .stroke(egui::Stroke::new(1.0, Color32::from_rgb(50, 60, 100)))
+    fn show_ai_settings_panel(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let bg     = col_surface3(ctx);
+        let border = col_border(ctx);
+        let txt    = col_text(ctx);
+        let t2     = col_text2(ctx);
+
+        egui::Frame::new()
+            .fill(bg)
+            .stroke(egui::Stroke::new(1.0, border))
             .corner_radius(10.0)
             .inner_margin(egui::Margin { left: 12, right: 12, top: 10, bottom: 10 })
             .show(ui, |ui| {
-                ui.label(RichText::new("AI Provider Settings").strong().size(13.0)
-                    .color(Color32::from_rgb(180, 200, 240)));
+                ui.label(RichText::new("AI Provider Settings").strong().size(13.0).color(txt));
                 ui.add_space(8.0);
 
-                ui.label(RichText::new("Provider").color(Color32::from_rgb(130, 150, 200)).size(11.0));
+                ui.label(RichText::new("Provider").color(t2).size(11.0));
                 ui.horizontal(|ui| {
                     let is_claude = self.ai_settings_draft.provider == AiProvider::Claude;
-                    if ui.selectable_label(is_claude,
-                        RichText::new("Claude").color(Color32::from_rgb(200, 130, 80))).clicked()
-                    {
+                    if ui.selectable_label(is_claude, RichText::new("Claude").color(Color32::from_rgb(200, 130, 80))).clicked() {
                         self.ai_settings_draft.provider = AiProvider::Claude;
-                        if self.ai_settings_draft.model == "gemini-2.0-flash"
-                            || self.ai_settings_draft.model.is_empty()
-                        {
+                        if self.ai_settings_draft.model.contains("gemini") || self.ai_settings_draft.model.is_empty() {
                             self.ai_settings_draft.model = "claude-haiku-4-5-20251001".into();
                         }
                     }
-                    if ui.selectable_label(!is_claude,
-                        RichText::new("Gemini").color(Color32::from_rgb(66, 153, 225))).clicked()
-                    {
+                    if ui.selectable_label(!is_claude, RichText::new("Gemini").color(Color32::from_rgb(66, 153, 225))).clicked() {
                         self.ai_settings_draft.provider = AiProvider::Gemini;
-                        if self.ai_settings_draft.model == "claude-haiku-4-5-20251001"
-                            || self.ai_settings_draft.model.is_empty()
-                        {
+                        if self.ai_settings_draft.model.contains("claude") || self.ai_settings_draft.model.is_empty() {
                             self.ai_settings_draft.model = "gemini-2.0-flash".into();
                         }
                     }
                 });
                 ui.add_space(6.0);
 
-                ui.label(RichText::new("API Key").color(Color32::from_rgb(130, 150, 200)).size(11.0));
+                ui.label(RichText::new("API Key").color(t2).size(11.0));
                 ui.add(
                     egui::TextEdit::singleline(&mut self.ai_settings_draft.api_key)
-                        .password(true)
-                        .hint_text("Paste your API key here…")
-                        .desired_width(f32::INFINITY),
+                        .password(true).hint_text("Paste your API key here…").desired_width(f32::INFINITY),
                 );
                 ui.add_space(6.0);
 
-                ui.label(RichText::new("Model").color(Color32::from_rgb(130, 150, 200)).size(11.0));
+                ui.label(RichText::new("Model").color(t2).size(11.0));
                 let model_hint = self.ai_settings_draft.default_model();
                 ui.add(
                     egui::TextEdit::singleline(&mut self.ai_settings_draft.model)
-                        .hint_text(model_hint)
-                        .desired_width(f32::INFINITY),
+                        .hint_text(model_hint).desired_width(f32::INFINITY),
                 );
 
-                // Quick model presets
                 ui.add_space(4.0);
                 let presets: &[(&str, &str)] = match self.ai_settings_draft.provider {
                     AiProvider::Claude => &[
@@ -1295,17 +1406,15 @@ impl FileExplorer {
                     ],
                 };
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new("Presets:").size(11.0).color(Color32::from_rgb(100, 110, 150)));
+                    ui.label(RichText::new("Presets:").size(11.0).color(t2));
                     for &(label, model) in presets {
-                        if ui.small_button(label).clicked() {
-                            self.ai_settings_draft.model = model.to_string();
-                        }
+                        if ui.small_button(label).clicked() { self.ai_settings_draft.model = model.to_string(); }
                     }
                 });
 
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
-                    if ui.button(RichText::new("Save").color(Color32::from_rgb(80, 200, 130))).clicked() {
+                    if ui.button(RichText::new("Save").color(col_success(ctx))).clicked() {
                         self.ai_config = self.ai_settings_draft.clone();
                         self.ai_config.save();
                         self.show_ai_settings = false;
@@ -1324,41 +1433,41 @@ impl FileExplorer {
 
     // ── Chat sidebar ──────────────────────────────────────────────────────────
 
-    fn show_chat_sidebar(&mut self, ui: &mut egui::Ui) {
+    fn show_chat_sidebar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let txt = col_text(ctx);
+        let t2  = col_text2(ctx);
+        let bg2 = col_surface2(ctx);
+        let bg3 = col_surface3(ctx);
+        let ac  = col_accent(ctx);
+
         ui.vertical(|ui| {
-            // Header
-            egui::Frame::default()
-                .fill(Color32::from_rgb(24, 26, 40))
+            egui::Frame::new()
+                .fill(bg2)
                 .inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 6 })
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("🤖").size(22.0));
                         ui.vertical(|ui| {
-                            ui.label(RichText::new("AI File Assistant").strong().size(13.0));
+                            ui.label(RichText::new("AI File Assistant").strong().size(13.0).color(txt));
                             ui.horizontal(|ui| {
-                                let provider_color = self.ai_config.provider_color();
                                 ui.label(RichText::new("●").size(10.0).color(
-                                    if self.ai_config.api_key.is_empty() {
-                                        Color32::from_rgb(160, 100, 60)
-                                    } else {
-                                        Color32::from_rgb(80, 200, 100)
-                                    }
+                                    if self.ai_config.api_key.is_empty() { Color32::from_rgb(160, 100, 60) }
+                                    else { col_success(ctx) }
                                 ));
                                 ui.label(RichText::new(self.ai_config.provider_label())
-                                    .size(10.0).color(provider_color));
+                                    .size(10.0).color(self.ai_config.provider_color()));
                                 if !self.ai_config.model.is_empty() {
-                                    ui.label(RichText::new(format!("· {}", self.ai_config.model))
-                                        .size(10.0).color(Color32::from_rgb(90, 100, 140)));
+                                    ui.label(RichText::new(format!("· {}", self.ai_config.model)).size(10.0).color(t2));
                                 }
                             });
                         });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let gear_label = if self.show_ai_settings {
-                                RichText::new("✕").size(14.0).color(Color32::from_rgb(180, 80, 80))
+                            let gear = if self.show_ai_settings {
+                                RichText::new("✕").size(14.0).color(col_danger(ctx))
                             } else {
-                                RichText::new("⚙").size(16.0).color(Color32::from_rgb(130, 150, 200))
+                                RichText::new("⚙").size(16.0).color(t2)
                             };
-                            if ui.button(gear_label).on_hover_text("Configure AI provider").clicked() {
+                            if ui.button(gear).on_hover_text("Configure AI provider").clicked() {
                                 self.show_ai_settings = !self.show_ai_settings;
                                 self.ai_settings_draft = self.ai_config.clone();
                             }
@@ -1366,15 +1475,13 @@ impl FileExplorer {
                     });
                 });
 
-            // Settings panel (inline)
             if self.show_ai_settings {
                 ui.add_space(4.0);
-                self.show_ai_settings_panel(ui);
+                self.show_ai_settings_panel(ui, ctx);
                 ui.add_space(4.0);
                 ui.separator();
             }
 
-            // Messages area
             let available = ui.available_height();
             let input_h   = 72.0;
             let chips_h   = if !self.mentioned_files.is_empty() { 30.0 } else { 0.0 };
@@ -1387,30 +1494,29 @@ impl FileExplorer {
                 .show(ui, |ui| {
                     ui.add_space(4.0);
                     for msg in &self.chat_messages {
-                        show_chat_bubble(ui, msg);
+                        show_chat_bubble(ui, msg, ctx);
                         ui.add_space(4.0);
                     }
                     if self.ai_loading {
                         ui.horizontal(|ui| {
                             ui.spinner();
-                            ui.label(RichText::new("Thinking…").color(Color32::from_rgb(130, 130, 170)).size(12.0).italics());
+                            ui.label(RichText::new("Thinking…").color(t2).size(12.0).italics());
                         });
                     }
                 });
 
             ui.separator();
 
-            // @mention autocomplete
             if self.at_mode {
                 let candidates = self.at_candidates();
                 if !candidates.is_empty() {
-                    egui::Frame::default()
-                        .fill(Color32::from_rgb(26, 28, 44))
-                        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 70, 110)))
+                    egui::Frame::new()
+                        .fill(bg3)
+                        .stroke(egui::Stroke::new(1.0, col_border(ctx)))
                         .corner_radius(8.0)
                         .inner_margin(egui::Margin { left: 4, right: 4, top: 4, bottom: 4 })
                         .show(ui, |ui| {
-                            ui.label(RichText::new("  Tag a file:").color(Color32::from_rgb(100, 110, 160)).size(11.0));
+                            ui.label(RichText::new("  Tag a file:").color(t2).size(11.0));
                             let mut select: Option<usize> = None;
                             for &idx in &candidates {
                                 if let Some(e) = self.entries.get(idx) {
@@ -1425,13 +1531,12 @@ impl FileExplorer {
                 }
             }
 
-            // File chips
             if !self.mentioned_files.is_empty() {
                 let mut remove: Option<usize> = None;
                 ui.horizontal_wrapped(|ui| {
                     for (i, f) in self.mentioned_files.iter().enumerate() {
                         let chip = format!("{} {} ✕", if f.is_dir { "📁" } else { "📄" }, f.name);
-                        if ui.small_button(RichText::new(chip).color(Color32::from_rgb(100, 160, 255)).size(11.0)).clicked() {
+                        if ui.small_button(RichText::new(chip).color(ac).size(11.0)).clicked() {
                             remove = Some(i);
                         }
                     }
@@ -1439,7 +1544,6 @@ impl FileExplorer {
                 if let Some(i) = remove { self.mentioned_files.remove(i); }
             }
 
-            // Input row
             ui.horizontal(|ui| {
                 let resp = ui.add(
                     egui::TextEdit::multiline(&mut self.chat_input)
@@ -1462,7 +1566,7 @@ impl FileExplorer {
                 });
             });
             ui.label(RichText::new("Enter send  ·  Shift+Enter newline  ·  @ tag file")
-                .color(Color32::from_rgb(80, 85, 120)).size(10.0));
+                .color(t2).size(10.0));
         });
     }
 }
@@ -1471,12 +1575,34 @@ impl FileExplorer {
 
 impl eframe::App for FileExplorer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Apply dark theme
-        ctx.set_visuals({
+        // Apply dark or light visuals each frame
+        ctx.set_visuals(if self.dark_mode {
             let mut v = egui::Visuals::dark();
-            v.window_fill      = Color32::from_rgb(22, 24, 36);
-            v.panel_fill       = Color32::from_rgb(18, 20, 30);
-            v.override_text_color = Some(Color32::from_rgb(200, 210, 240));
+            v.window_fill         = Color32::from_rgb(24, 24, 24);
+            v.panel_fill          = Color32::from_rgb(18, 18, 18);
+            v.faint_bg_color      = Color32::from_rgb(26, 26, 26);
+            v.extreme_bg_color    = Color32::from_rgb(12, 12, 12);
+            v.override_text_color = Some(Color32::from_rgb(215, 215, 215));
+            v.widgets.noninteractive.bg_fill   = Color32::from_rgb(28, 28, 28);
+            v.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, Color32::from_rgb(60, 60, 60));
+            v.widgets.inactive.bg_fill         = Color32::from_rgb(36, 36, 36);
+            v.widgets.hovered.bg_fill          = Color32::from_rgb(48, 48, 48);
+            v.widgets.active.bg_fill           = Color32::from_rgb(60, 60, 60);
+            v.selection.bg_fill                = Color32::from_rgb(55, 55, 75);
+            v
+        } else {
+            let mut v = egui::Visuals::light();
+            v.window_fill         = Color32::WHITE;
+            v.panel_fill          = Color32::from_rgb(248, 248, 248);
+            v.faint_bg_color      = Color32::from_rgb(242, 242, 242);
+            v.extreme_bg_color    = Color32::WHITE;
+            v.override_text_color = Some(Color32::from_rgb(20, 20, 20));
+            v.widgets.noninteractive.bg_fill   = Color32::from_rgb(240, 240, 240);
+            v.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, Color32::from_rgb(200, 200, 200));
+            v.widgets.inactive.bg_fill         = Color32::from_rgb(232, 232, 232);
+            v.widgets.hovered.bg_fill          = Color32::from_rgb(220, 220, 220);
+            v.widgets.active.bg_fill           = Color32::from_rgb(200, 200, 200);
+            v.selection.bg_fill                = Color32::from_rgb(190, 210, 245);
             v
         });
 
@@ -1503,21 +1629,21 @@ impl eframe::App for FileExplorer {
 
         // Keyboard shortcuts
         ctx.input(|i| {
-            if i.key_pressed(egui::Key::F5)                          { self.load_directory(&self.current_path.clone()); }
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::C)       { self.copy_file(); }
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::X)       { self.cut_file(); }
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::V)       { self.paste_file(); }
-            if i.key_pressed(egui::Key::Delete)                      { self.delete_file(); }
+            if i.key_pressed(egui::Key::F5)                                          { self.load_directory(&self.current_path.clone()); }
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::C)                       { self.copy_file(); }
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::X)                       { self.cut_file(); }
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::V)                       { self.paste_file(); }
+            if i.key_pressed(egui::Key::Delete)                                      { self.delete_file(); }
             if i.key_pressed(egui::Key::Backspace)
-                || (i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft))  { self.go_back(); }
-            if i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight) { self.go_forward(); }
+                || (i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft))          { self.go_back(); }
+            if i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight)               { self.go_forward(); }
             if i.modifiers.ctrl && i.key_pressed(egui::Key::H) {
                 self.show_hidden = !self.show_hidden;
                 self.load_directory(&self.current_path.clone());
             }
-            if i.key_pressed(egui::Key::Escape) {
-                self.context_menu = None;
-                self.at_mode = false;
+            if i.key_pressed(egui::Key::Escape) { self.context_menu = None; self.at_mode = false; }
+            if i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::A) {
+                self.show_ai_panel = !self.show_ai_panel;
             }
         });
 
@@ -1525,15 +1651,19 @@ impl eframe::App for FileExplorer {
         self.show_toolbar(ctx);
         self.show_bottom_panel(ctx);
 
-        egui::SidePanel::right("chat_panel")
-            .resizable(true).min_width(270.0).default_width(320.0).max_width(520.0)
-            .frame(egui::Frame::default()
-                .fill(Color32::from_rgb(20, 22, 34))
-                .inner_margin(egui::Margin { left: 8, right: 8, top: 8, bottom: 8 }))
-            .show(ctx, |ui| { self.show_chat_sidebar(ui); });
+        if self.show_ai_panel {
+            egui::SidePanel::right("chat_panel")
+                .resizable(true).min_width(270.0).default_width(320.0).max_width(520.0)
+                .frame(egui::Frame::new()
+                    .fill(col_surface2(ctx))
+                    .inner_margin(egui::Margin { left: 8, right: 8, top: 8, bottom: 8 }))
+                .show(ctx, |ui| { self.show_chat_sidebar(ui, ctx); });
+        }
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::default().fill(Color32::from_rgb(18, 20, 30)).inner_margin(8.0))
+            .frame(egui::Frame::new()
+                .fill(col_surface(ctx))
+                .inner_margin(egui::Margin::same(6)))
             .show(ctx, |ui| { self.show_file_list(ui, ctx); });
 
         self.show_context_menu(ctx);
@@ -1545,22 +1675,22 @@ impl eframe::App for FileExplorer {
 
 // ─── LAN networking ───────────────────────────────────────────────────────────
 
-/// Background thread: listens for UDP discovery pings and advertises ourselves;
-/// also listens for incoming TCP file transfers.
-fn lan_receive_server(tx: std::sync::mpsc::Sender<LanServerMsg>, save_dir: PathBuf) {
-    // Start a parallel thread for UDP advertising
+fn lan_receive_server(tx: std::sync::mpsc::Sender<LanServerMsg>, default_save_dir: PathBuf) {
     thread::spawn(lan_advertise_loop);
 
-    // TCP server for receiving files
     let listener = match TcpListener::bind(("0.0.0.0", LAN_TRANSFER_PORT)) {
-        Ok(l) => l,
-        Err(e) => { let _ = tx.send(LanServerMsg::Error(format!("Cannot listen on port {}: {}", LAN_TRANSFER_PORT, e))); return; }
+        Ok(l)  => l,
+        Err(e) => {
+            let _ = tx.send(LanServerMsg::Error(format!("Cannot listen on port {}: {}", LAN_TRANSFER_PORT, e)));
+            return;
+        }
     };
-    let _ = listener.set_nonblocking(false);
 
     for stream in listener.incoming().flatten() {
         let tx2      = tx.clone();
-        let save_dir = save_dir.clone();
+        // Always save to the default_save_dir (home). The UI layer then
+        // optionally reloads the directory when it sees the FileReceived message.
+        let save_dir = default_save_dir.clone();
         thread::spawn(move || {
             match lan_receive_file(stream, &save_dir) {
                 Ok((name, dest)) => { let _ = tx2.send(LanServerMsg::FileReceived { name, dest }); }
@@ -1570,7 +1700,6 @@ fn lan_receive_server(tx: std::sync::mpsc::Sender<LanServerMsg>, save_dir: PathB
     }
 }
 
-/// Loops forever, responding to UDP discovery pings.
 fn lan_advertise_loop() {
     let Ok(sock) = UdpSocket::bind(("0.0.0.0", LAN_DISCOVER_PORT)) else { return };
     let hostname = hostname();
@@ -1585,19 +1714,16 @@ fn lan_advertise_loop() {
     }
 }
 
-/// One-shot UDP advertisement (used when starting a discovery scan).
 fn lan_advertise_once() {
     let Ok(sock) = UdpSocket::bind(("0.0.0.0", 0)) else { return };
     let _ = sock.set_read_timeout(Some(std::time::Duration::from_millis(500)));
     let hostname = hostname();
-    let mut buf  = [0u8; 256];
-    // Wait for a discover ping and reply once
+    let mut buf = [0u8; 256];
     if let Ok((_, from)) = sock.recv_from(&mut buf) {
         let _ = sock.send_to(format!("ANVEL_PEER:{}", hostname).as_bytes(), from);
     }
 }
 
-/// Send a file over TCP to the given IP address.
 fn lan_send_file(path: &Path, addr: std::net::IpAddr) -> Result<(), String> {
     let data = fs::read(path).map_err(|e| format!("Cannot read file: {}", e))?;
     let name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -1606,26 +1732,20 @@ fn lan_send_file(path: &Path, addr: std::net::IpAddr) -> Result<(), String> {
     let mut stream = TcpStream::connect((addr, LAN_TRANSFER_PORT))
         .map_err(|e| format!("Cannot connect to peer: {}", e))?;
 
-    // Protocol: [4-byte name length LE] [name bytes] [8-byte file size LE] [file data]
-    let name_len = (name_bytes.len() as u32).to_le_bytes();
-    let file_len = (data.len() as u64).to_le_bytes();
-
-    stream.write_all(&name_len).map_err(|e| e.to_string())?;
+    stream.write_all(&(name_bytes.len() as u32).to_le_bytes()).map_err(|e| e.to_string())?;
     stream.write_all(name_bytes).map_err(|e| e.to_string())?;
-    stream.write_all(&file_len).map_err(|e| e.to_string())?;
+    stream.write_all(&(data.len() as u64).to_le_bytes()).map_err(|e| e.to_string())?;
     stream.write_all(&data).map_err(|e| e.to_string())?;
     stream.flush().map_err(|e| e.to_string())?;
-
     Ok(())
 }
 
-/// Receive a file from a TCP stream, save it to save_dir.
 fn lan_receive_file(mut stream: TcpStream, save_dir: &Path) -> Result<(String, PathBuf), String> {
     let mut len_buf = [0u8; 4];
     stream.read_exact(&mut len_buf).map_err(|e| e.to_string())?;
     let name_len = u32::from_le_bytes(len_buf) as usize;
-
     if name_len > 4096 { return Err("Malformed packet: name too long".into()); }
+
     let mut name_buf = vec![0u8; name_len];
     stream.read_exact(&mut name_buf).map_err(|e| e.to_string())?;
     let name = String::from_utf8_lossy(&name_buf).to_string();
@@ -1633,14 +1753,13 @@ fn lan_receive_file(mut stream: TcpStream, save_dir: &Path) -> Result<(String, P
     let mut size_buf = [0u8; 8];
     stream.read_exact(&mut size_buf).map_err(|e| e.to_string())?;
     let file_size = u64::from_le_bytes(size_buf) as usize;
-
     if file_size > 2 * 1024 * 1024 * 1024 { return Err("File too large (>2 GB)".into()); }
+
     let mut data = vec![0u8; file_size];
     stream.read_exact(&mut data).map_err(|e| e.to_string())?;
 
     let dest = save_dir.join(&name);
     fs::write(&dest, &data).map_err(|e| e.to_string())?;
-
     Ok((name, dest))
 }
 
@@ -1665,14 +1784,11 @@ fn call_claude(api_key: &str, model: &str, history: Vec<(String, String)>) -> Re
     );
 
     let out = std::process::Command::new("curl")
-        .args([
-            "-s", "-X", "POST",
-            "https://api.anthropic.com/v1/messages",
-            "-H", "content-type: application/json",
-            "-H", "anthropic-version: 2023-06-01",
-            "-H", &format!("x-api-key: {}", api_key),
-            "-d", &body,
-        ])
+        .args(["-s", "-X", "POST", "https://api.anthropic.com/v1/messages",
+               "-H", "content-type: application/json",
+               "-H", "anthropic-version: 2023-06-01",
+               "-H", &format!("x-api-key: {}", api_key),
+               "-d", &body])
         .output().map_err(|e| format!("curl error: {}", e))?;
 
     parse_claude_response(&String::from_utf8_lossy(&out.stdout))
@@ -1701,9 +1817,7 @@ fn parse_claude_response(resp: &str) -> Result<String, String> {
     }
     if let Some(s) = resp.find("\"message\":\"") {
         let rest = &resp[s + 11..];
-        if let Some(end) = rest.find('"') {
-            return Err(format!("API error: {}", &rest[..end]));
-        }
+        if let Some(end) = rest.find('"') { return Err(format!("API error: {}", &rest[..end])); }
     }
     Err(format!("Could not parse response. Check your Claude API key.\nRaw: {}", &resp[..resp.len().min(200)]))
 }
@@ -1714,11 +1828,9 @@ fn call_gemini(api_key: &str, model: &str, history: Vec<(String, String)>) -> Re
         format!(r#"{{"role":"{}","parts":[{{"text":"{}"}}]}}"#, grole, json_escape(content))
     }).collect();
 
-    let system_instruction = r#""systemInstruction":{"parts":[{"text":"You are an intelligent file assistant embedded in a desktop file explorer. Help users manage, understand, and work with their files. Be concise and practical. Plain text only — no markdown."}]}"#;
-
     let body = format!(
-        r#"{{{}, "contents":[{}]}}"#,
-        system_instruction, contents.join(",")
+        r#"{{"systemInstruction":{{"parts":[{{"text":"You are an intelligent file assistant embedded in a desktop file explorer. Help users manage, understand, and work with their files. Be concise and practical. Plain text only — no markdown."}}]}},"contents":[{}]}}"#,
+        contents.join(",")
     );
 
     let url = format!(
@@ -1727,19 +1839,13 @@ fn call_gemini(api_key: &str, model: &str, history: Vec<(String, String)>) -> Re
     );
 
     let out = std::process::Command::new("curl")
-        .args([
-            "-s", "-X", "POST",
-            &url,
-            "-H", "content-type: application/json",
-            "-d", &body,
-        ])
+        .args(["-s", "-X", "POST", &url, "-H", "content-type: application/json", "-d", &body])
         .output().map_err(|e| format!("curl error: {}", e))?;
 
     parse_gemini_response(&String::from_utf8_lossy(&out.stdout))
 }
 
 fn parse_gemini_response(resp: &str) -> Result<String, String> {
-    // Gemini returns: "candidates":[{"content":{"parts":[{"text":"..."}]
     if let Some(start) = resp.find("\"text\":\"") {
         let rest = &resp[start + 8..];
         let mut result = String::new();
@@ -1762,19 +1868,14 @@ fn parse_gemini_response(resp: &str) -> Result<String, String> {
     }
     if let Some(s) = resp.find("\"message\":\"") {
         let rest = &resp[s + 11..];
-        if let Some(end) = rest.find('"') {
-            return Err(format!("API error: {}", &rest[..end]));
-        }
+        if let Some(end) = rest.find('"') { return Err(format!("API error: {}", &rest[..end])); }
     }
     Err(format!("Could not parse Gemini response. Check your API key.\nRaw: {}", &resp[..resp.len().min(200)]))
 }
 
 fn json_escape(s: &str) -> String {
-    s.replace('\\', "\\\\")
-     .replace('"',  "\\\"")
-     .replace('\n', "\\n")
-     .replace('\r', "\\r")
-     .replace('\t', "\\t")
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+     .replace('\n', "\\n").replace('\r', "\\r").replace('\t', "\\t")
 }
 
 // ─── Free helpers ─────────────────────────────────────────────────────────────
@@ -1794,10 +1895,9 @@ fn fnv_hash(s: &str) -> u64 {
     s.bytes().fold(0xcbf29ce484222325u64, |h, b| h.wrapping_mul(0x100000001b3).wrapping_add(b as u64))
 }
 
-fn menu_item(ui: &mut egui::Ui, icon: &str, label: &str) -> bool {
+fn menu_item(ui: &mut egui::Ui, icon: &str, label: &str, ctx: &egui::Context) -> bool {
     ui.add(
-        egui::Button::new(RichText::new(format!("{}  {}", icon, label))
-            .color(Color32::from_rgb(200, 210, 235)).size(13.0))
+        egui::Button::new(RichText::new(format!("{}  {}", icon, label)).color(col_text(ctx)).size(13.0))
             .frame(false).min_size(Vec2::new(200.0, 24.0)),
     ).clicked()
 }
@@ -1805,37 +1905,42 @@ fn menu_item(ui: &mut egui::Ui, icon: &str, label: &str) -> bool {
 fn menu_item_danger(ui: &mut egui::Ui, icon: &str, label: &str) -> bool {
     ui.add(
         egui::Button::new(RichText::new(format!("{}  {}", icon, label))
-            .color(Color32::from_rgb(230, 80, 80)).size(13.0))
+            .color(Color32::from_rgb(210, 70, 70)).size(13.0))
             .frame(false).min_size(Vec2::new(200.0, 24.0)),
     ).clicked()
 }
 
-fn show_chat_bubble(ui: &mut egui::Ui, msg: &ChatMessage) {
+fn show_chat_bubble(ui: &mut egui::Ui, msg: &ChatMessage, ctx: &egui::Context) {
+    let dark = is_dark(ctx);
     match msg.role {
         ChatRole::Assistant => {
             ui.horizontal_top(|ui| {
                 ui.add_space(4.0);
                 ui.label(RichText::new("🤖").size(14.0));
-                egui::Frame::default()
-                    .fill(Color32::from_rgb(30, 34, 52))
+                let bubble_bg  = if dark { Color32::from_rgb(36, 36, 36) } else { Color32::from_rgb(235, 235, 235) };
+                let bubble_txt = col_text(ctx);
+                egui::Frame::new()
+                    .fill(bubble_bg)
                     .corner_radius(egui::CornerRadius { nw: 2, ne: 10, sw: 10, se: 10 })
                     .inner_margin(egui::Margin { left: 10, right: 10, top: 7, bottom: 7 })
                     .show(ui, |ui| {
                         ui.set_max_width(230.0);
-                        ui.label(RichText::new(&msg.content).color(Color32::from_rgb(200, 215, 245)).size(12.5));
+                        ui.label(RichText::new(&msg.content).color(bubble_txt).size(12.5));
                     });
             });
         }
         ChatRole::User => {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                 ui.add_space(4.0);
-                egui::Frame::default()
-                    .fill(Color32::from_rgb(28, 56, 120))
+                let bubble_bg  = if dark { Color32::from_rgb(55, 55, 75) } else { Color32::from_rgb(40, 90, 180) };
+                let bubble_txt = if dark { Color32::from_rgb(220, 220, 240) } else { Color32::WHITE };
+                egui::Frame::new()
+                    .fill(bubble_bg)
                     .corner_radius(egui::CornerRadius { nw: 10, ne: 2, sw: 10, se: 10 })
                     .inner_margin(egui::Margin { left: 10, right: 10, top: 7, bottom: 7 })
                     .show(ui, |ui| {
                         ui.set_max_width(230.0);
-                        ui.label(RichText::new(&msg.content).color(Color32::from_rgb(220, 235, 255)).size(12.5));
+                        ui.label(RichText::new(&msg.content).color(bubble_txt).size(12.5));
                     });
             });
         }
